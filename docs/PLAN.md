@@ -19,6 +19,8 @@ So the Cloudflare/D1 stack from revision 1 is withdrawn. Hey Ann copies **Socrat
 - **The UI should be modern, dark and clean**, built with the design skills.
 - **No AI attribution** in commits, PRs or merges.
 
+**As built:** 16 MCP tools, which add `get_card`, `focus`, `insights`, `history`, `configure_board` and `ann_guide` to the eight below. The full list is in [SETUP-CLIENTS.md](SETUP-CLIENTS.md). The HTTP API is in [API.md](API.md).
+
 ---
 
 ## 1. Ground truth

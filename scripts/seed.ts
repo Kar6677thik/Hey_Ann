@@ -98,7 +98,12 @@ r.created.forEach((c, i) => {
   tr.run(c.id, completed, doingCol, doneCol);
   fl.run(c.id, completed - spent * 60000, completed, spent);
 });
-// Spread the open cards' creation over the period too, and backdate the batches so the activity feed reads naturally.
+// Spread the open cards' creation over the last two weeks too, and backdate the batches so the activity feed reads naturally.
+const openRows = board.db.prepare('SELECT id FROM cards WHERE completed_at IS NULL ORDER BY id').all() as { id: number }[];
+openRows.forEach((o, i) => {
+  const t = Date.now() - Math.round(((openRows.length - i) / openRows.length) * 14 * 864e5);
+  board.db.prepare('UPDATE cards SET created_at = ?, updated_at = MAX(updated_at, ?) WHERE id = ?').run(t, t, o.id);
+});
 board.db.prepare('UPDATE transitions SET at = (SELECT created_at FROM cards WHERE cards.id = transitions.card_id) WHERE from_column IS NULL').run();
 const batches = board.db.prepare('SELECT id FROM batches ORDER BY at').all() as { id: string }[];
 batches.forEach((b, i) => board.db.prepare('UPDATE batches SET at = ? WHERE id = ?').run(Date.now() - (batches.length - i) * 5 * 3600_000, b.id));
