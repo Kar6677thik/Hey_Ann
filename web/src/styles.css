@@ -1,0 +1,366 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+/*
+  Hey Ann tokens. Style: "data terminal" (dealt by design-taste-frontend, seed 1207220997), with the
+  owner's type (Inter for UI, JetBrains Mono for every id, time and figure).
+  - Cards sit darker than the ground; elevation is a tone step plus a 1px edge, never a glow.
+  - The one accent is a 1px line for selection, the focus ring, Ann's mark and the main data series.
+  - Status colours only on status: overdue/blocked/P0 negative, today/P1/WIP-over warning.
+*/
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ground: #151517;
+  --surface: #111114;
+  --raised: #1c1c20;
+  --overlay: #1b1b1f;
+  --active: #232328;
+  --border: #242428;
+  --border-strong: #303036;
+  --rule: #1d1d21;
+  --control: #3a3a40;
+  --text: #f2f2f3;
+  --muted: #a6a7ad;
+  --faint: #87888f;
+  --primary: #f2f2f3;
+  --primary-ink: #111114;
+  --accent: #4a8ad6;
+  --accent-ink: #8bb6ec;
+  --accent-soft: rgb(74 138 214 / 0.14);
+  --positive: #44a282;
+  --negative: #e5566f;
+  --warning: #d9a441;
+  --pill-positive-bg: #1b2828;
+  --pill-positive-ink: #5fc39c;
+  --pill-negative-bg: #2c1a20;
+  --pill-negative-ink: #ef7b8f;
+  --pill-warning-bg: #2a2416;
+  --pill-warning-ink: #e0b25a;
+  --pill-neutral-bg: #212125;
+  --pill-neutral-ink: #c4c5ca;
+  --grid: #26262b;
+  --baseline: #3a3a40;
+  --chart-created: #6b6d75;
+  --cfd-1: #9ec5f4;
+  --cfd-2: #6da7ec;
+  --cfd-3: #3987e5;
+  --cfd-4: #256abf;
+  --cfd-5: #184f95;
+  --shadow-float: 0 16px 40px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.3);
+  --shadow-lift: 0 18px 36px rgb(0 0 0 / 0.5), 0 3px 10px rgb(0 0 0 / 0.35);
+  --scrim: rgb(5 5 7 / 0.62);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ground: #f6f6f7;
+  --surface: #ffffff;
+  --raised: #f0f0f2;
+  --overlay: #ffffff;
+  --active: #e9e9ec;
+  --border: #e4e4e8;
+  --border-strong: #d6d6dc;
+  --rule: #ededf0;
+  --control: #c9cad1;
+  --text: #121214;
+  --muted: #55565d;
+  --faint: #67686f;
+  --primary: #18181b;
+  --primary-ink: #ffffff;
+  --accent: #2f6fbf;
+  --accent-ink: #245ea6;
+  --accent-soft: rgb(47 111 191 / 0.1);
+  --positive: #247b50;
+  --negative: #c4242a;
+  --warning: #a8670a;
+  --pill-positive-bg: #dcfae5;
+  --pill-positive-ink: #04501f;
+  --pill-negative-bg: #ffedea;
+  --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fff6dc;
+  --pill-warning-ink: #8a4a06;
+  --pill-neutral-bg: #efeff2;
+  --pill-neutral-ink: #3e3f45;
+  --grid: #ebebee;
+  --baseline: #c3c4ca;
+  --chart-created: #a3a5ad;
+  --cfd-1: #86b6ef;
+  --cfd-2: #5598e7;
+  --cfd-3: #2a78d6;
+  --cfd-4: #1c5cab;
+  --cfd-5: #104281;
+  --shadow-float: 0 16px 40px rgb(16 16 24 / 0.14), 0 2px 8px rgb(16 16 24 / 0.08);
+  --shadow-lift: 0 18px 36px rgb(16 16 24 / 0.18), 0 3px 10px rgb(16 16 24 / 0.1);
+  --scrim: rgb(20 20 26 / 0.32);
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-overlay: var(--overlay);
+  --color-active: var(--active);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-rule: var(--rule);
+  --color-control: var(--control);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-ink: var(--primary-ink);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --text-2xs: 11px;
+  --text-2xs--line-height: 16px;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 20px;
+  --text-base: 14px;
+  --text-base--line-height: 20px;
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    background: var(--ground);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 20px;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  button,
+  [role='button'] {
+    cursor: pointer;
+  }
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  [role='button'] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  option {
+    background: var(--surface);
+    color: var(--text);
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--faint);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--control) transparent;
+  }
+}
+
+@layer components {
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'zero' 0;
+    letter-spacing: -0.01em;
+  }
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+  /* The style's one move: a selection is a 1px accent line as wide as its label. */
+  .sel-line {
+    position: relative;
+  }
+  .sel-line[aria-current='page']::after,
+  .sel-line[aria-selected='true']::after,
+  .sel-line[data-active='true']::after {
+    content: '';
+    position: absolute;
+    left: var(--sel-inset, 0);
+    right: var(--sel-inset, 0);
+    bottom: -1px;
+    height: 1px;
+    background: var(--accent);
+  }
+  .skeleton {
+    background: var(--raised);
+    border-radius: 4px;
+  }
+  .scroll-x-snap {
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
+  }
+  .prose-ann {
+    font-size: 13px;
+    line-height: 21px;
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+  .prose-ann > * + * {
+    margin-top: 8px;
+  }
+  .prose-ann h1,
+  .prose-ann h2,
+  .prose-ann h3 {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .prose-ann strong {
+    font-weight: 600;
+  }
+  .prose-ann ul {
+    list-style: disc;
+    padding-left: 18px;
+  }
+  .prose-ann ol {
+    list-style: decimal;
+    padding-left: 18px;
+  }
+  .prose-ann li + li {
+    margin-top: 2px;
+  }
+  .prose-ann a {
+    color: var(--accent-ink);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--accent-ink) 40%, transparent);
+    text-underline-offset: 2px;
+  }
+  .prose-ann code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--raised);
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+  .prose-ann pre {
+    background: var(--raised);
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+  }
+  .prose-ann pre code {
+    background: none;
+    padding: 0;
+  }
+  .prose-ann blockquote {
+    border-left: 2px solid var(--border-strong);
+    padding-left: 10px;
+    color: var(--muted);
+  }
+  .prose-ann input[type='checkbox'] {
+    margin-right: 6px;
+    accent-color: var(--accent);
+  }
+  .hatch-blocked {
+    background-image: repeating-linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--negative) 22%, transparent) 0 1px,
+      transparent 1px 6px
+    );
+  }
+}
+
+/* Ann just touched this card: a brief accent ring that fades out. */
+@keyframes ann-glow {
+  0% {
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+  }
+  70% {
+    box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 1px transparent, 0 0 0 4px transparent;
+  }
+}
+.ann-touched {
+  animation: ann-glow 2.6s var(--ease-out-quint) both;
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.live-pulse {
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* sonner, restyled onto the tokens */
+[data-sonner-toaster] {
+  --normal-bg: var(--overlay);
+  --normal-border: var(--border-strong);
+  --normal-text: var(--text);
+  font-family: var(--font-sans) !important;
+}
+[data-sonner-toast] {
+  box-shadow: var(--shadow-float) !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+}
+[data-sonner-toast] [data-button] {
+  background: var(--primary) !important;
+  color: var(--primary-ink) !important;
+  border-radius: 999px !important;
+  font-weight: 500 !important;
+  height: 24px !important;
+  padding: 0 10px !important;
+}
+[data-sonner-toast] [data-description] {
+  color: var(--muted) !important;
+}

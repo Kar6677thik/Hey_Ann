@@ -1,0 +1,55 @@
+import { serve } from '@hono/node-server';
+import { Board } from '../core/board.ts';
+import { backupIfDue } from '../core/db.ts';
+import { loadConfig } from './config.ts';
+import { Owner } from './owner.ts';
+import { tokenVerifier } from './oauth.ts';
+import { createServers } from './http.ts';
+
+// Fail fast on bad configuration: a deployed instance must never start half-secured.
+const cfg = loadConfig();
+const board = new Board();
+const owner = cfg.credentialFile ? Owner.fromFile(cfg.credentialFile, board) : null;
+const verifyToken = cfg.oauth ? tokenVerifier(cfg.oauth) : null;
+
+const { ui, mcp } = createServers(board, cfg, { owner, verifyToken });
+
+const runBackup = () => {
+  try {
+    backupIfDue(board.db, board.dbPath);
+  } catch (e: any) {
+    console.error(`[hey-ann] Backup failed: ${e.message}`);
+  }
+};
+setTimeout(runBackup, 60_000).unref();
+setInterval(runBackup, 3600_000).unref();
+
+const servers = [
+  serve({ fetch: ui.fetch, port: cfg.port, hostname: cfg.host }, () => {
+    console.log(`Hey Ann   ${cfg.publicOrigin ?? `http://localhost:${cfg.port}`}  (listening on ${cfg.host}:${cfg.port})`);
+    if (owner) console.log('Login     password (remembered 30 days per device)');
+    if (!cfg.deployed && !cfg.oauth) console.log(`MCP HTTP  http://localhost:${cfg.port}/mcp  (bearer token: Settings > Connect AI)`);
+  }),
+];
+if (mcp && cfg.mcpPort) {
+  servers.push(serve({ fetch: mcp.fetch, port: cfg.mcpPort, hostname: cfg.host }, () => {
+    console.log(`MCP       ${cfg.oauth!.resource}  (Orbit Identity OAuth; listening on ${cfg.host}:${cfg.mcpPort})`);
+  }));
+}
+
+// Kubernetes stops the pod with SIGTERM: stop accepting requests, then close SQLite cleanly.
+let stopping = false;
+const stop = () => {
+  if (stopping) return;
+  stopping = true;
+  let open = servers.length;
+  const done = () => {
+    try { board.close(); } catch {}
+    process.exit(0);
+  };
+  for (const s of servers) s.close(() => { if (--open === 0) done(); });
+  // Open SSE streams keep the server from closing; don't wait for them.
+  setTimeout(done, 3000).unref();
+};
+process.on('SIGTERM', stop);
+process.on('SIGINT', stop);
