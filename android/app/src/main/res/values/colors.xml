@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same tokens as the Hey Ann web app (web/src/styles.css, dark). -->
+<resources>
+    <color name="ground">#151517</color>
+    <color name="surface">#111114</color>
+    <color name="border_strong">#303036</color>
+    <color name="text">#F2F2F3</color>
+    <color name="faint">#87888F</color>
+    <color name="accent">#4A8AD6</color>
+</resources>

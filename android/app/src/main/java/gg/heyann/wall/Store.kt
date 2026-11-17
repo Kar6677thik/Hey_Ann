@@ -46,7 +46,19 @@ object Store {
             else prefs.edit().putString("token", encrypt(v.trim())).apply()
         }
 
-    val configured get() = !token.isNullOrBlank()
+    val configured get() = demo || !token.isNullOrBlank()
+
+    /**
+     * Debug-only preview (DemoActivity in src/debug, launchable only from adb shell): an in-memory state for
+     * screenshots. While it's on, the wall blocks nothing and no network calls are made. Gone on process restart.
+     */
+    @Volatile var demo = false
+        private set
+
+    fun startDemo(s: Snapshot) {
+        demo = true
+        snapshot = s
+    }
 
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
