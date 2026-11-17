@@ -41,7 +41,8 @@ object Usage {
             .entries.sortedByDescending { it.value }.take(150).associate { it.key to it.value }
     }
 
-    /** Called from the service's tick: posts yesterday and today, at most every 3 hours. */
+    /** Called from the service's tick: posts the last 7 days (re-sending is harmless; the server overwrites each day), at most every 3 hours.
+     *  So the phone only needs to reach Hey Ann once in a while: days missed while offline are caught up on the next send. */
     fun reportIfDue(ctx: Context, force: Boolean = false, done: (String) -> Unit = {}) {
         if (!Store.configured || !granted(ctx)) return done("Usage access not granted.")
         if (!force && System.currentTimeMillis() - Store.lastUsageReport < EVERY_MS) return done("")
@@ -49,7 +50,7 @@ object Usage {
         val app = ctx.applicationContext
         Thread {
             val today = LocalDate.now()
-            val days = listOf(today.minusDays(1), today).map { it to runCatching { minutes(app, it) }.getOrElse { emptyMap() } }
+            val days = (6L downTo 0L).map { today.minusDays(it) }.map { it to runCatching { minutes(app, it) }.getOrElse { emptyMap() } }
             var left = days.size
             val errors = ArrayList<String>()
             for ((day, apps) in days) {
@@ -57,7 +58,7 @@ object Usage {
                     r.onFailure { errors += it.message ?: "error" }
                     if (--left == 0) {
                         if (errors.isNotEmpty()) Store.lastUsageReport = System.currentTimeMillis() - EVERY_MS + 15 * 60_000 // retry in 15 min
-                        done(if (errors.isEmpty()) "Usage sent for ${days.first().first} and $today." else errors.first())
+                        done(if (errors.isEmpty()) "Usage sent for ${days.first().first} to $today." else errors.first())
                     }
                 }
             }
