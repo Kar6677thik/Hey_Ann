@@ -406,7 +406,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   phone.get('/state', (c) => { wallet.tick(); return c.json(wallet.phoneState()); });
   phone.post('/session', async (c) => {
     const b = await body(c);
-    if (b.action === 'stop') return c.json({ ...wallet.stopSession(num(String(b.id))), state: wallet.phoneState() });
+    if (b.action === 'stop') return c.json({ ...wallet.stopSession(num(String(b.id)), Date.now(), c.get('device')), state: wallet.phoneState() });
     return c.json({ session: wallet.spend(c.get('device'), String(b.app ?? 'unknown'), num(String(b.minutes), 'minutes')), state: wallet.phoneState() });
   });
   phone.post('/back', (c) => c.json({ rewarded: wallet.back(), state: wallet.phoneState() }));

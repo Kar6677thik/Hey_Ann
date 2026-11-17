@@ -52,7 +52,7 @@ cap: 60 SM per day
 |---|---|
 | Split a task into many cards | Credit follows minutes, not cards. Bonuses are capped at 3/day and need ≥25 focus min |
 | Create a card and complete it instantly | It earns 0, because there are no focus minutes |
-| Leave the focus timer running while on the phone | Focus minutes that **overlap a phone spend session are voided**. Sessions auto-stop at 90 min. A session needs the web tab open (heartbeat), and a gap over 5 min ends it |
+| Leave the focus timer running while on the phone | Focus minutes that **overlap a phone spend session are voided**. A single focus session counts 90 minutes at most |
 | Log time manually or backdate | Manual time logs earn 0. Focus timestamps are set by the server |
 | Raise priority just before finishing | Priority is locked when the first focus session starts |
 | Move a due date to fake "on time" | T counts only a due date that was set ≥48h before completion |
@@ -89,7 +89,7 @@ cap: 60 SM per day
   - **"Go back"** refunds 1 SM. Backing out is rewarded.
   - **"Spend"** opens a session of 5/10/15 minutes, at most 20 per unlock.
   - **"Emergency (−30)"** gives a 15-minute unlock, after a 60-second wait and a typed reason. Max 2 per week.
-- **Meter:** time is counted on the phone each second, with a heartbeat to the server every 30 s. The server owns the balance.
+- **Meter:** sessions are prepaid on the server (unused whole minutes are refunded when you end early), and the phone enforces the end time with its uptime clock, so changing the phone clock does not help. A running session unlocks all walled apps until it ends. The server owns the balance.
 - **Offline:** sessions are **prepaid** on the server, so with no connection nothing new can be bought and walled apps stay walled. A session already running ends on time. Turning off Tailscale or Wi-Fi therefore doesn't unlock anything. Essentials are never affected.
 - **Grayscale** stays on outside essentials. It's free friction.
 - **Safety first (owner's rule):** only a normal Accessibility permission, which you can switch off in Settings at any time. The app never touches the launcher, Settings, system UI, essentials or itself, and if it crashes, nothing is blocked. No device-admin, no Device Owner, no reset.
@@ -98,7 +98,7 @@ cap: 60 SM per day
 **Server side:** a small phone API on the tailnet-only listener, authenticated with a per-device token:
 - `GET /api/phone/state`: phase, whether to enforce, balance, walled apps, the running session, emergency unlocks left.
 - `POST /api/phone/back`, `POST /api/phone/gap`, `POST /api/phone/usage` (daily per-app minutes, for the baseline).
-- `POST /api/phone/session` (start/stop) and `POST /api/phone/heartbeat`.
+- `POST /api/phone/session` (start/stop).
 - `POST /api/phone/emergency`.
 
 ## 7. Ann's discretion: the unusual cases

@@ -559,9 +559,9 @@ export class Wallet {
   }
 
   /** End a session early: unused whole minutes come back. */
-  stopSession(id: number, now = Date.now()) {
+  stopSession(id: number, now = Date.now(), deviceId?: number) {
     const s = this.db.prepare('SELECT * FROM phone_sessions WHERE id = ?').get(id) as any;
-    if (!s) throw new BoardError('session not found', 404);
+    if (!s || (deviceId !== undefined && s.device_id !== deviceId)) throw new BoardError('session not found', 404);
     if (s.stopped_at) return { refunded: 0 };
     this.db.prepare('UPDATE phone_sessions SET stopped_at = ? WHERE id = ?').run(Math.min(now, s.ends_at), id);
     const unused = Math.floor((s.ends_at - now) / 60000);
@@ -621,7 +621,7 @@ export class Wallet {
       phase, enforce: phase === 'active', balance: this.balance(), walled_apps: r.walled_apps, unlock_max: r.unlock_max,
       session: s ? { id: s.id, app: s.app, kind: s.kind, ends_at: s.ends_at } : null,
       emergency: { cost: r.emergency_cost, minutes: r.emergency_minutes, left: Math.max(r.emergency_per_week - emUsed, 0) },
-      back_reward: r.back_reward, server_time: now,
+      back_reward: r.back_reward, tamper: { gap_min: r.tamper_gap_min, penalty: r.tamper_penalty }, server_time: now,
     };
   }
 
