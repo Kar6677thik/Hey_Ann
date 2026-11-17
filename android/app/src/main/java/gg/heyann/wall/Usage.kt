@@ -4,6 +4,8 @@ import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Process
 import java.time.LocalDate
 import java.time.ZoneId
@@ -16,6 +18,16 @@ object Usage {
     fun granted(ctx: Context): Boolean {
         val ops = ctx.getSystemService(AppOpsManager::class.java)
         return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.packageName) == AppOpsManager.MODE_ALLOWED
+    }
+
+    /** Packages whose time in front is not "using the phone": launchers, system UI and this app. */
+    private fun notUsage(ctx: Context): Set<String> {
+        val set = hashSetOf(ctx.packageName, "com.android.systemui")
+        runCatching {
+            ctx.packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_ALL)
+                .forEach { set += it.activityInfo.packageName }
+        }
+        return set
     }
 
     /** Minutes per package for one local day (up to now, for today). */
@@ -33,11 +45,12 @@ object Usage {
                 UsageEvents.Event.ACTIVITY_RESUMED -> Policy.RESUMED
                 UsageEvents.Event.ACTIVITY_PAUSED, UsageEvents.Event.ACTIVITY_STOPPED -> Policy.PAUSED
                 UsageEvents.Event.DEVICE_SHUTDOWN -> Policy.SHUTDOWN
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> Policy.SCREEN_OFF
                 else -> continue
             }
-            list += Policy.UsageEvent(e.timeStamp, e.packageName ?: continue, e.className ?: "", type)
+            list += Policy.UsageEvent(e.timeStamp, e.packageName ?: "", e.className ?: "", type)
         }
-        return Policy.foregroundMinutes(list, start, end)
+        return Policy.foregroundMinutes(list, start, end, notUsage(ctx))
             .entries.sortedByDescending { it.value }.take(150).associate { it.key to it.value }
     }
 
