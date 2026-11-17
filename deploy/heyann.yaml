@@ -63,7 +63,7 @@ spec:
         seccompProfile: { type: RuntimeDefault }
       containers:
         - name: heyann
-          image: ghcr.io/kar6677thik/heyann@sha256:IMAGE_DIGEST
+          image: ghcr.io/kar6677thik/hey-ann@sha256:IMAGE_DIGEST
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
