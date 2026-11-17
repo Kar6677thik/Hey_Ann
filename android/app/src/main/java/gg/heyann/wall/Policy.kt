@@ -143,37 +143,36 @@ object Policy {
     const val RESUMED = 1
     const val PAUSED = 2
     const val SHUTDOWN = 3
+    /** Screen went off or the keyguard came up: nobody is using the phone. */
+    const val SCREEN_OFF = 4
 
     /**
-     * Foreground minutes per package within [start, end), from resume/pause events in time order.
-     * An activity already in front at `start` (first event a pause) counts from `start`;
-     * one still in front at `end` counts up to `end`.
+     * Foreground minutes per package within [start, end), from usage events in time order.
+     * Only ONE app is in front at a time: a resume hands the slot to that app (closing the previous one), and a pause
+     * of the app in front, screen-off/keyguard or shutdown empties it. Android often logs resumes without a matching
+     * pause (Settings, launchers), so per-activity bookkeeping over-counts badly; a single slot can't.
+     * The app in front at `end` counts up to `end`; nothing is assumed to be in front at `start`.
+     * Packages in `ignore` (launchers, system UI, this app) are never counted.
      */
-    fun foregroundMinutes(events: List<UsageEvent>, start: Long, end: Long): Map<String, Int> {
-        val open = HashMap<String, Long>()     // "pkg/cls" -> resumed at
-        val seen = HashSet<String>()
+    fun foregroundMinutes(events: List<UsageEvent>, start: Long, end: Long, ignore: Set<String> = emptySet()): Map<String, Int> {
+        var cur: String? = null
+        var since = 0L
         val ms = HashMap<String, Long>()
-        fun add(pkg: String, from: Long, to: Long) {
-            val a = from.coerceAtLeast(start); val b = to.coerceAtMost(end)
-            if (b > a) ms[pkg] = (ms[pkg] ?: 0) + (b - a)
+        fun close(at: Long) {
+            val p = cur ?: return
+            val a = since.coerceAtLeast(start); val b = at.coerceAtMost(end)
+            if (b > a && p !in ignore) ms[p] = (ms[p] ?: 0) + (b - a)
+            cur = null
         }
         for (e in events) {
             if (e.time < start || e.time >= end) continue
             when (e.type) {
-                RESUMED -> { val k = "${e.pkg}/${e.cls}"; seen += k; if (k !in open) open[k] = e.time }
-                PAUSED -> {
-                    val k = "${e.pkg}/${e.cls}"
-                    val from = open.remove(k) ?: if (k !in seen) start else null
-                    seen += k
-                    if (from != null) add(e.pkg, from, e.time)
-                }
-                SHUTDOWN -> {
-                    for ((k, from) in open) add(k.substringBefore('/'), from, e.time)
-                    open.clear()
-                }
+                RESUMED -> if (cur != e.pkg) { close(e.time); cur = e.pkg; since = e.time }
+                PAUSED -> if (cur == e.pkg) close(e.time)
+                SHUTDOWN, SCREEN_OFF -> close(e.time)
             }
         }
-        for ((k, from) in open) add(k.substringBefore('/'), from, end)
+        close(end)
         return ms.mapValues { (it.value / 60_000).toInt().coerceAtMost(1440) }.filterValues { it > 0 }
     }
 }
