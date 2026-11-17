@@ -1,0 +1,8 @@
+node_modules/
+web/dist/
+data/
+*.log
+.owner/
+*.tar
+jwks.json
+.env
