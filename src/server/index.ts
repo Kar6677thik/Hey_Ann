@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Board } from '../core/board.ts';
 import { backupIfDue } from '../core/db.ts';
+import { getWallet } from '../core/wallet.ts';
 import { loadConfig } from './config.ts';
 import { Owner } from './owner.ts';
 import { tokenVerifier } from './oauth.ts';
@@ -9,6 +10,7 @@ import { createServers } from './http.ts';
 // Fail fast on bad configuration: a deployed instance must never start half-secured.
 const cfg = loadConfig();
 const board = new Board();
+const wallet = getWallet(board);
 const owner = cfg.credentialFile ? Owner.fromFile(cfg.credentialFile, board) : null;
 const verifyToken = cfg.oauth ? tokenVerifier(cfg.oauth) : null;
 
@@ -23,6 +25,10 @@ const runBackup = () => {
 };
 setTimeout(runBackup, 60_000).unref();
 setInterval(runBackup, 3600_000).unref();
+// The wallet's clock: daily allowance, no-plan forfeits and closing finished days (all idempotent).
+const tickWallet = () => { try { wallet.tick(); } catch (e: any) { console.error(`[hey-ann] Wallet tick failed: ${e.message}`); } };
+setTimeout(tickWallet, 5_000).unref();
+setInterval(tickWallet, 60_000).unref();
 
 const servers = [
   serve({ fetch: ui.fetch, port: cfg.port, hostname: cfg.host }, () => {

@@ -137,6 +137,75 @@ const MIGRATIONS: string[] = [
     persistent INTEGER NOT NULL
   );
   `,
+  /* 2: rewards (docs/REWARDS.md) */ `
+  ALTER TABLE cards ADD COLUMN credit_priority INTEGER;       -- priority locked at the first focus session
+  ALTER TABLE cards ADD COLUMN credit_pending INTEGER NOT NULL DEFAULT 0;  -- Ann completed it; owner must confirm
+
+  -- Append-only screen-minute ledger. Balance = SUM(amount). Never edited; corrections are new rows.
+  CREATE TABLE ledger (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    kind TEXT NOT NULL,             -- earn|bonus|clawback|allowance|forfeit|penalty|spend|refund|emergency|grant|fine|veto|expire|pause|back
+    reason TEXT NOT NULL,
+    card_id INTEGER,
+    source TEXT NOT NULL,           -- system|web|ann|phone
+    rule_version INTEGER NOT NULL,
+    dedupe TEXT                     -- one-off events (daily allowance, a day's penalty) post at most once
+  );
+  CREATE UNIQUE INDEX ledger_dedupe ON ledger(dedupe) WHERE dedupe IS NOT NULL;
+  CREATE INDEX ledger_at ON ledger(at);
+  CREATE INDEX ledger_card ON ledger(card_id) WHERE card_id IS NOT NULL;
+
+  CREATE TABLE devices (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    last_seen INTEGER,
+    revoked_at INTEGER
+  );
+
+  -- Prepaid phone sessions in walled apps: minutes are charged at start, unused whole minutes refunded at stop.
+  CREATE TABLE phone_sessions (
+    id INTEGER PRIMARY KEY,
+    device_id INTEGER NOT NULL,
+    app TEXT NOT NULL,
+    kind TEXT NOT NULL,             -- spend|emergency
+    started_at INTEGER NOT NULL,
+    ends_at INTEGER NOT NULL,
+    stopped_at INTEGER
+  );
+  CREATE INDEX phone_sessions_time ON phone_sessions(started_at);
+
+  -- Per-app daily usage reported by the phone (baseline and stats).
+  CREATE TABLE phone_usage (
+    day TEXT NOT NULL,
+    app TEXT NOT NULL,
+    minutes INTEGER NOT NULL,
+    PRIMARY KEY (day, app)
+  );
+
+  CREATE TABLE pause_days (
+    day TEXT PRIMARY KEY,
+    reason TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  -- What each card's credit has been accounted at (nominal, before daily caps), so reconciling never pays twice.
+  CREATE TABLE card_credit (
+    card_id INTEGER PRIMARY KEY,
+    base INTEGER NOT NULL DEFAULT 0,
+    bonus INTEGER NOT NULL DEFAULT 0
+  );
+
+  -- Closing balance per local day (for the "3 days in debt" rule).
+  CREATE TABLE wallet_days (
+    day TEXT PRIMARY KEY,
+    closing INTEGER NOT NULL
+  );
+  `,
 ];
 
 export function openDb(path = DEFAULT_DB_PATH): DB {

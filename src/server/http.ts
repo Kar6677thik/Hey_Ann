@@ -11,7 +11,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { Board, BoardError, type BatchMeta, type CardInput, type CardPatch } from '../core/board.ts';
 import type { BoardEvent, ColumnKind, Settings } from '../core/types.ts';
@@ -22,7 +22,8 @@ import { insights, planDay, rank, summary, triage } from '../core/insights.ts';
 import { setPlan } from '../core/plan.ts';
 import { exportJson, importJson } from '../core/transfer.ts';
 import { buildMcpServer, prettyClient, SERVER_INSTRUCTIONS } from '../mcp/server.ts';
-import { isDay } from '../core/time.ts';
+import { addDays, isDay } from '../core/time.ts';
+import { getWallet } from '../core/wallet.ts';
 import type { Config } from './config.ts';
 import { SESSION_COOKIE, REMEMBER_IDLE_MS, type Owner } from './owner.ts';
 import { challenge, resourceMetadata, type TokenCheck } from './oauth.ts';
@@ -53,6 +54,8 @@ function viaHttps(c: Context, cfg: Config): boolean {
 
 const hostAllowed = (host: string | undefined, allowed: string[]) =>
   !!host && (LOCAL_HOST.test(host) || allowed.some((h) => h.toLowerCase() === host.toLowerCase()));
+
+const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
 function safeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a), y = Buffer.from(b);
@@ -117,7 +120,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   // the sign-in screen.
   const session = (c: Context) => (owner ? owner.check(getCookie(c, SESSION_COOKIE)) : { persistent: true });
   root.use('/api/*', async (c, next) => {
-    if (c.req.path === '/api/session') return next();
+    if (c.req.path === '/api/session' || c.req.path.startsWith('/api/phone/')) return next();
     if (!session(c)) return c.json({ error: 'Sign in to continue.', code: 'signin' }, 401);
     await next();
   });
@@ -345,13 +348,77 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   // Live updates: every change from any source (the UI, Ann over MCP, the system).
   api.get('/events', (c) => streamSSE(c, async (stream) => {
     const send = (ev: BoardEvent) => { void stream.writeSSE({ event: 'board', data: JSON.stringify(ev) }); };
+    const sendWallet = (ev: unknown) => { void stream.writeSSE({ event: 'wallet', data: JSON.stringify(ev) }); };
     board.events.on('board', send);
+    board.events.on('wallet', sendWallet);
     await stream.writeSSE({ event: 'hello', data: JSON.stringify({ now: Date.now() }) });
     const beat = setInterval(() => { void stream.write(': ping\n\n'); }, 25_000);
     await new Promise<void>((done) => stream.onAbort(() => done()));
     clearInterval(beat);
     board.events.off('board', send);
+    board.events.off('wallet', sendWallet);
   }));
+
+  // ---- Screen-time wallet (owner)
+  const wallet = getWallet(board);
+  api.get('/wallet', (c) => c.json(wallet.summary()));
+  api.get('/wallet/ledger', (c) => c.json({ items: wallet.ledger({ limit: c.req.query('limit') ? num(c.req.query('limit')) : 50, before: c.req.query('before') ? num(c.req.query('before')) : undefined }) }));
+  api.post('/wallet/start', async (c) => c.json(wallet.start({ baseline: (await body(c)).baseline !== false })));
+  api.patch('/wallet/rules', async (c) => c.json(wallet.setRules(await body(c))));
+  api.post('/wallet/confirm/:cardId', async (c) => c.json({ card: wallet.confirmCredit(num(c.req.param('cardId')), (await body(c)).accept !== false), balance: wallet.balance() }));
+  api.post('/wallet/veto/:id', (c) => c.json({ entry: wallet.veto(num(c.req.param('id'))), balance: wallet.balance() }));
+  api.post('/wallet/pause', async (c) => {
+    const b = await body(c);
+    return c.json(wallet.pauseDay(b.day && isDay(b.day) ? b.day : board.today(), String(b.reason ?? ''), 'web'));
+  });
+  // The owner can fine themselves (confessions), never grant: self-granting would be a one-click way around the wall.
+  api.post('/wallet/fine', async (c) => {
+    const b = await body(c);
+    return c.json({ entry: wallet.adjust(-Math.abs(num(String(b.minutes), 'minutes')), String(b.reason ?? ''), 'web'), balance: wallet.balance() });
+  });
+  api.get('/wallet/usage', (c) => {
+    const days = Math.min(c.req.query('days') ? num(c.req.query('days')) : 14, 90);
+    return c.json({ items: board.db.prepare('SELECT day, app, minutes FROM phone_usage WHERE day >= ? ORDER BY day, minutes DESC').all(addDays(board.today(), -days)) });
+  });
+  api.get('/devices', (c) => c.json({ items: board.db.prepare('SELECT id, name, created_at, last_seen, revoked_at FROM devices ORDER BY id DESC').all() }));
+  api.post('/devices', async (c) => {
+    const name = String((await body(c)).name ?? 'Phone').trim().slice(0, 40) || 'Phone';
+    const token = randomBytes(32).toString('base64url');
+    const id = Number(board.db.prepare('INSERT INTO devices(name, token_hash, created_at) VALUES (?, ?, ?)').run(name, sha256(token), Date.now()).lastInsertRowid);
+    // The token is shown once; only its hash is stored.
+    return c.json({ id, name, token });
+  });
+  api.delete('/devices/:id', (c) => {
+    board.db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(Date.now(), num(c.req.param('id')));
+    return c.json({ ok: true });
+  });
+
+  // ---- Phone (device token, not the owner session). Tailnet only, like the rest of this listener.
+  const phone = new Hono<{ Variables: { device: number } }>();
+  phone.use('*', async (c, next) => {
+    const m = /^Bearer\s+(\S{20,100})$/i.exec(c.req.header('authorization') ?? '');
+    const d = m ? board.db.prepare('SELECT id FROM devices WHERE token_hash = ? AND revoked_at IS NULL').get(sha256(m[1])) as { id: number } | undefined : undefined;
+    if (!d) return c.json({ error: 'Unknown or revoked device token.' }, 401);
+    board.db.prepare('UPDATE devices SET last_seen = ? WHERE id = ?').run(Date.now(), d.id);
+    c.set('device', d.id);
+    await next();
+  });
+  phone.get('/state', (c) => { wallet.tick(); return c.json(wallet.phoneState()); });
+  phone.post('/session', async (c) => {
+    const b = await body(c);
+    if (b.action === 'stop') return c.json({ ...wallet.stopSession(num(String(b.id))), state: wallet.phoneState() });
+    return c.json({ session: wallet.spend(c.get('device'), String(b.app ?? 'unknown'), num(String(b.minutes), 'minutes')), state: wallet.phoneState() });
+  });
+  phone.post('/back', (c) => c.json({ rewarded: wallet.back(), state: wallet.phoneState() }));
+  phone.post('/emergency', async (c) => c.json({ ...wallet.emergency(c.get('device'), String((await body(c)).reason ?? '')), state: wallet.phoneState() }));
+  phone.post('/gap', async (c) => c.json({ penalty: wallet.protectionGap(c.get('device'), Number((await body(c)).minutes)), state: wallet.phoneState() }));
+  phone.post('/usage', async (c) => {
+    const b = await body(c);
+    if (!isDay(b.day) || typeof b.apps !== 'object' || !b.apps) throw new BoardError('usage needs { day: "YYYY-MM-DD", apps: { package: minutes } }');
+    wallet.recordUsage(b.day, b.apps);
+    return c.json({ ok: true });
+  });
+  api.route('/phone', phone);
 
   // ---- Board configuration
   const cfgWrite = <T>(action: string, summary: (r: any) => string, fn: (tx: import('../core/board.ts').Tx) => T) => {

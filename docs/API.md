@@ -108,3 +108,30 @@ Quick-add syntax:
 | GET | `/backups` | `{ items: { name, bytes, at }[] }` |
 | POST | `/backups` | `{ file }` |
 | GET | `/export/db` | SQLite file download |
+
+## Screen-time wallet (docs/REWARDS.md)
+
+**Owner endpoints** (session cookie):
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/wallet` | | Summary: phase, balance, today's figures, debt, `pending_credit`, `vetoable`, `phone`, `rules`, `pending_rules`, `pause_days` |
+| GET | `/wallet/ledger` | `limit`, `before` (ledger id) | `{ items }` |
+| POST | `/wallet/start` | `{ baseline?: boolean }` (default true: a 7-day measurement week) | Summary |
+| PATCH | `/wallet/rules` | `Partial<Rules>` | `{ effective, rules }`. Once active, changes wait until next Monday; walling more apps applies now |
+| POST | `/wallet/confirm/:cardId` | `{ accept: boolean }` | Confirms or declines credit for a card Ann completed |
+| POST | `/wallet/veto/:id` | | Reverses one of Ann's grants or fines within 24h |
+| POST | `/wallet/pause` | `{ day?, reason }` | Declares a pause day |
+| POST | `/wallet/fine` | `{ minutes, reason }` | Fines yourself. There is no self-grant |
+| GET | `/wallet/usage` | `days` | `{ items: { day, app, minutes }[] }` |
+| GET / POST / DELETE | `/devices`, `/devices/:id` | `{ name }` | Pairs a phone (the token is shown once) or revokes it |
+
+**Phone endpoints** (`Authorization: Bearer <device token>`, tailnet only):
+- `GET /phone/state`
+- `POST /phone/session`: `{ action: 'start', app, minutes }` or `{ action: 'stop', id }`
+- `POST /phone/back`
+- `POST /phone/emergency` with `{ reason }`
+- `POST /phone/gap` with `{ minutes }`
+- `POST /phone/usage` with `{ day, apps: { package: minutes } }`
+
+**Live updates:** `/events` also streams `event: wallet` with `{ entry, balance }` on every ledger row.
