@@ -36,6 +36,14 @@ if (-not $phones) {
   $phones = @(Get-Phones)
 }
 if (-not $phones) { throw 'No phone found. Turn on Wireless debugging (same Wi-Fi as this PC) or plug in USB, then retry. First time? See the pairing steps at the top of this script.' }
+# The same phone can show up twice (USB, its mDNS name, and IP:port): keep one entry per hardware serial.
+$bySerial = [ordered]@{}
+foreach ($p in $phones) {
+  $serial = (& $adb -s $p shell getprop ro.serialno 2>$null | Out-String).Trim()
+  if (-not $serial) { $serial = $p }
+  if (-not $bySerial.Contains($serial)) { $bySerial[$serial] = $p }
+}
+$phones = @($bySerial.Values)
 if ($phones.Count -gt 1) { throw "More than one phone connected: $($phones -join ', '). Disconnect the extras." }
 
 Write-Host "Installing on $($phones[0])..." -ForegroundColor Cyan
