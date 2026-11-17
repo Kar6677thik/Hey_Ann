@@ -3,7 +3,7 @@
 # Imports a `docker save` tar into k3s containerd and prints the digest to deploy with: the `<repo>@sha256:...` name
 # that `import --digests` registers, which is what kubelet resolves. (It is neither the digest `docker build` printed
 # nor the `:candidate` tag's digest, and it cannot be computed from the tar beforehand.)
-#   sudo sh deploy/import-image.sh ghcr.io/kar6677thik/heyann /tmp/heyann.tar
+#   sudo sh deploy/import-image.sh ghcr.io/kar6677thik/hey-ann /tmp/hey-ann.tar
 # CTR overrides the containerd client (default: "k3s ctr").
 set -eu
 repo="$1"
