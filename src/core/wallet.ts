@@ -644,7 +644,7 @@ export class Wallet {
       phase: this.phase(now), started: s.started, baseline_until: s.baseline_until, balance: this.balance(),
       today: {
         day: today, earned: kinds(['earn', 'bonus']), allowance: kinds(['allowance', 'pause']), penalties: kinds(PENALTY_KINDS),
-        spent: -kinds(['spend', 'emergency']), refunded: kinds(['refund']), ann: kinds(['grant', 'fine']),
+        spent: -kinds(['spend', 'emergency']), refunded: kinds(['refund']), ann: this.sum("kind IN ('grant','fine') AND source = 'ann' AND at >= ?", start),
         earn_cap: r.daily_earn_cap, paused: this.isPaused(today),
       },
       debt: Math.min(this.balance(), 0), debt_floor: r.debt_floor, balance_cap: r.balance_cap,

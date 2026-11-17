@@ -16,6 +16,7 @@ const CalendarView = lazy(() => import('../features/calendar/CalendarView.tsx'))
 const InsightsView = lazy(() => import('../features/insights/InsightsView.tsx'));
 const ActivityView = lazy(() => import('../features/activity/ActivityView.tsx'));
 const SettingsView = lazy(() => import('../features/settings/SettingsView.tsx'));
+const WalletView = lazy(() => import('../features/wallet/WalletView.tsx'));
 
 function ScreenFallback() {
   return (
@@ -48,6 +49,7 @@ export function Shell() {
               <Route path="/calendar" component={CalendarView} />
               <Route path="/insights" component={InsightsView} />
               <Route path="/activity" component={ActivityView} />
+              <Route path="/wallet" component={WalletView} />
               <Route path="/settings/:section?" component={SettingsView} />
               <Route>
                 <div className="p-6">

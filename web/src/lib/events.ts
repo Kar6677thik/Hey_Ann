@@ -9,6 +9,7 @@ import { undoBatch } from './mutations.ts';
 import { invalidateAll } from './queries.ts';
 import { createStore } from './store.ts';
 import { markTouched } from './ui-state.ts';
+import { onWalletEvent } from './wallet-live.ts';
 import type { Batch, BoardEvent } from '../../../src/core/types.ts';
 
 export type LiveStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
@@ -69,6 +70,7 @@ export function useLiveEvents(enabled: boolean) {
         retry = 0;
         liveStore.set((s) => ({ ...s, status: 'live' }));
       });
+      es.addEventListener('wallet', (msg) => onWalletEvent((msg as MessageEvent<string>).data));
       es.addEventListener('board', (msg) => {
         let ev: BoardEvent;
         try {

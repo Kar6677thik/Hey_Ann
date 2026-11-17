@@ -120,7 +120,7 @@ export const CardTile = memo(function CardTile({ card, project, today, focusMin,
 
       <h3 className={cn('mt-1.5 line-clamp-3 text-[13px] font-medium leading-[18px] [overflow-wrap:anywhere]', done ? 'text-muted' : 'text-text')}>{card.title}</h3>
 
-      {blocked || card.needs_review ? (
+      {blocked || card.needs_review || (done && card.credit_pending) ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {blocked ? (
             <Tooltip content={<span><span className="font-medium">Blocked:</span> {card.blocked_reason}</span>}>
@@ -133,6 +133,11 @@ export const CardTile = memo(function CardTile({ card, project, today, focusMin,
           {card.needs_review ? (
             <Pill tone="warning" title="Ann guessed a detail on this card. Give it a glance.">
               Ann guessed
+            </Pill>
+          ) : null}
+          {done && card.credit_pending ? (
+            <Pill tone="accent" title="Ann marked this done. Confirm it to release its screen-minute credit.">
+              Ann · confirm
             </Pill>
           ) : null}
         </div>

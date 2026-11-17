@@ -34,6 +34,14 @@ A personal Kanban board that Claude and ChatGPT run for you. Start a message wit
 - Live updates: when Ann changes something from Claude or ChatGPT, the board updates instantly and shows a toast with Undo.
 - Settings: Connect AI (URL and instruction snippet), JSON import/export, and backups.
 
+**Screen-time wallet** ([docs/REWARDS.md](docs/REWARDS.md))
+- Screen minutes are a currency, earned only by focused work on cards that reach Done.
+- They are lost through lapses: missed plans, overdue urgent cards, emergency unlocks. Penalties are capped, debt has a floor, and there's always a way back.
+- The [Android app](android/README.md) walls off distracting apps when the balance is empty. It uses a normal Accessibility permission only, with no reset and no device-admin.
+- Ann handles the cases the rules miss, within daily limits, and you can veto her.
+
+![Wallet](docs/screenshots/wallet.png)
+
 ## Run it locally
 
 Requires Node 22.18+ (24 recommended). There are no native modules and no build step for the server.

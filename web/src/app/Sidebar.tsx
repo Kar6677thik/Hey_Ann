@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { useBoard, useProjects } from '../lib/queries.ts';
@@ -7,11 +8,13 @@ import { AnnMark, Kbd, LogoMark, ProjectDot, Skeleton } from '../components/ui/b
 import { cn } from '../components/ui/cn.ts';
 import { AnnStatus, LiveDot } from './AnnStatus.tsx';
 import { NAV, SETTINGS_NAV, isActive, type NavItem } from './nav.ts';
+import { useWallet } from '../lib/wallet.ts';
+import { Minutes } from '../features/wallet/parts.tsx';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl';
 
-function NavLink({ item, collapsed, count }: { item: NavItem; collapsed: boolean; count?: number }) {
+function NavLink({ item, collapsed, count, chip }: { item: NavItem; collapsed: boolean; count?: number; chip?: ReactNode }) {
   const [location] = useLocation();
   const active = isActive(item.href, location);
   const Icon = item.icon;
@@ -31,6 +34,7 @@ function NavLink({ item, collapsed, count }: { item: NavItem; collapsed: boolean
       <Icon size={16} strokeWidth={1.6} aria-hidden className={active ? 'text-text' : 'text-faint group-hover:text-muted'} />
       {collapsed ? null : <span className="flex-1 truncate">{item.label}</span>}
       {!collapsed && count ? <span className="num text-xs text-faint">{count}</span> : null}
+      {!collapsed ? chip : null}
     </Link>
   );
 }
@@ -81,7 +85,7 @@ export function Sidebar() {
 
       <nav aria-label="Screens" className={cn('mt-4 flex flex-none flex-col gap-0.5', collapsed ? 'px-2' : 'px-3')}>
         {NAV.map((item) => (
-          <NavLink key={item.href} item={item} collapsed={collapsed} count={item.href === '/today' ? planned.data : undefined} />
+          <NavLink key={item.href} item={item} collapsed={collapsed} count={item.href === '/today' ? planned.data : undefined} chip={item.href === '/wallet' ? <BalanceChip /> : undefined} />
         ))}
       </nav>
 
@@ -166,5 +170,21 @@ function ProjectList() {
         {projects.isSuccess && !items.length ? <li className="px-2 py-1 text-xs text-faint">Projects appear when a card has one. Try “@work” in quick add.</li> : null}
       </ul>
     </div>
+  );
+}
+
+/** The wallet balance beside its nav item: mono minutes, red in debt, a dot when something waits on you. */
+function BalanceChip() {
+  const q = useWallet();
+  if (!q.data || q.data.phase === 'off') return null;
+  const waiting = q.data.pending_credit.length + q.data.vetoable.length;
+  return (
+    <span className="flex items-center gap-1.5" aria-label={`Balance ${q.data.balance} minutes${waiting ? `, ${waiting} waiting on you` : ''}`}>
+      {waiting ? <span aria-hidden className="size-1.5 rounded-full bg-accent" /> : null}
+      <span className="num text-xs">
+        {q.data.balance < 0 ? <Minutes value={q.data.balance} suffix={false} /> : <span className="text-muted">{q.data.balance}</span>}
+        <span className="text-faint">m</span>
+      </span>
+    </span>
   );
 }
