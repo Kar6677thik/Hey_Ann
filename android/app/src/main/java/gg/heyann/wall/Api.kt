@@ -40,6 +40,7 @@ object Api {
     /** Every call goes through here: one background thread, result posted to the main thread. */
     private fun call(ctx: Context, method: String, path: String, body: JSONObject?, done: (Result<JSONObject>) -> Unit) {
         val app = ctx.applicationContext
+        if (Store.demo) { main.post { done(Result.success(JSONObject())) }; return }
         io.execute {
             val r = runCatching { request(method, path, body) }
             r.onSuccess { j ->

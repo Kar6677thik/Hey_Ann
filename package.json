@@ -18,7 +18,8 @@
     "mcp": "node --no-warnings src/mcp/stdio.ts",
     "seed": "node --no-warnings scripts/seed.ts",
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "node --no-warnings --test tests/*.test.ts"
+    "test": "node --no-warnings --test tests/*.test.ts",
+    "phone": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-phone.ps1"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.8",

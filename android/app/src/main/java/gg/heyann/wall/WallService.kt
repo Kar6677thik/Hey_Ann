@@ -91,7 +91,7 @@ class WallService : AccessibilityService() {
         state = Store.snapshot,
         ownPackage = packageName,
         essentials = essentials(),
-        paused = Store.paused,
+        paused = Store.paused || Store.demo,
         nowElapsed = SystemClock.elapsedRealtime(),
         bootNow = Store.bootCount(this),
     )

@@ -89,12 +89,15 @@ In the **active** phase, protection that's off or paused for more than 15 minute
 |---|---|
 | `app/src/main/java/gg/heyann/wall/Policy.kt` | Pure logic: should block?, session end, gap rule, usage minutes. No Android imports |
 | `.../WallService.kt` | The Accessibility service: bounce, 60 s refresh, liveness, gap reports, essentials found at runtime |
-| `.../BlockActivity.kt` | The block screen |
-| `.../MainActivity.kt` | Status, setup, permissions, pause |
+| `.../BlockActivity.kt` | The block screen, and its emergency view |
+| `.../MainActivity.kt` | Status, setup checklist, pause |
+| `.../Ui.kt` | The small design kit: web app colour tokens, cards, pills, buttons, fields, the mono font |
 | `.../Api.kt` | `/api/phone/*` client (`Authorization: Bearer <token>`) |
 | `.../Store.kt` | Settings, the Keystore-encrypted token, the cached state |
 | `.../Usage.kt` | Usage access → `POST /api/phone/usage` |
 | `app/src/test/.../PolicyTest.kt` | JUnit tests for the pure logic |
+| `app/src/debug/.../DemoActivity.kt` | Debug-only preview for screenshots (see below) |
+| `app/src/main/res/font/` | JetBrains Mono 400/500, Latin subset (~49 KB each), [OFL](licenses/JetBrainsMono-OFL.txt) |
 
 **Build and test:**
 
@@ -103,6 +106,29 @@ android\gradlew.bat assembleDebug testDebugUnitTest
 ```
 
 The build needs JDK 17+ (`JAVA_HOME`) and the Android SDK. `local.properties` points at the SDK and is gitignored.
+
+## Look
+
+The app matches the Hey Ann web app:
+- **Colours:** the same dark tokens as `web/src/styles.css`.
+- **Type:** numbers are in JetBrains Mono, and text uses the system sans.
+- **App icon:** an hourglass on near-black, which is also the web app's wallet icon.
+
+Screenshots are in [`docs/`](docs/): `before-*.png` shows the old look, and `after-*.png` shows the current one.
+
+**Preview without a server (debug builds only).** `DemoActivity` loads a made-up wallet state into memory, with no network and no saving.
+- While it's loaded, the wall blocks nothing.
+- Only `adb shell` can start it, because it requires the `DUMP` permission, which ordinary apps can't hold.
+- It isn't in release builds at all.
+
+Always pass `-s` with the emulator's serial:
+
+```
+adb -s emulator-5554 shell am start -n gg.heyann.wall/.DemoActivity --es screen status --ei balance 25 --ei session 12
+adb -s emulator-5554 shell am start -n gg.heyann.wall/.DemoActivity --es screen block --ei balance -8
+```
+
+The extras are `screen` (`status`, `block` or `icon`), `balance`, `phase`, `session` (minutes left), `kind`, `app` and `paused`.
 
 **Pinned versions:**
 - Gradle 8.14.3
