@@ -136,3 +136,7 @@ The extras are `screen` (`status`, `block` or `icon`), `balance`, `phase`, `sess
 - Kotlin 2.2.0
 - compileSdk/targetSdk 36, minSdk 29
 - JUnit 4.13.2, which is the only dependency
+
+## Secure Folder
+
+Samsung Secure Folder runs as a separate user, so the wall (and usage counting) cannot see apps inside it. That is deliberate: reaching into it would need system-level access, which this app never uses. The one honesty rule: **do not install walled apps inside Secure Folder.**
