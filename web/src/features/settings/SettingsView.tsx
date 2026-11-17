@@ -4,10 +4,12 @@ import { ColumnsSettings, ProjectsSettings, TagsSettings } from './BoardSettings
 import { ConnectAI } from './ConnectAI.tsx';
 import { DataSettings } from './DataSettings.tsx';
 import { General } from './General.tsx';
+import { WalletSettings } from './WalletSettings.tsx';
 
 const SECTIONS = [
   { value: 'general', label: 'General' },
   { value: 'board', label: 'Board' },
+  { value: 'wallet', label: 'Wallet' },
   { value: 'connect', label: 'Connect AI' },
   { value: 'data', label: 'Data & sign-in' },
 ] as const;
@@ -31,6 +33,7 @@ export default function SettingsView() {
               <TagsSettings />
             </>
           ) : null}
+          {section === 'wallet' ? <WalletSettings /> : null}
           {section === 'connect' ? <ConnectAI /> : null}
           {section === 'data' ? <DataSettings /> : null}
         </div>

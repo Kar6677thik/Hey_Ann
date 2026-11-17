@@ -9,7 +9,7 @@ import { cn } from '../components/ui/cn.ts';
 import { AnnStatus, LiveDot } from './AnnStatus.tsx';
 import { NAV, SETTINGS_NAV, isActive } from './nav.ts';
 
-const BOTTOM = [NAV[0], NAV[1], NAV[2], NAV[5]];
+const BOTTOM = ['/', '/today', '/wallet', '/activity'].map((h) => NAV.find((n) => n.href === h)!);
 
 /** Phone: compact top bar + bottom tab bar; everything else in the menu sheet. */
 export function MobileTopBar() {

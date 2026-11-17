@@ -69,6 +69,10 @@ export interface Card {
   recurrence: Recurrence | null;
   /** A running focus session started at this instant, or null. */
   focus_started_at: number | null;
+  /** Ann moved it to Done; its screen-minute credit waits for the owner to confirm. */
+  credit_pending: boolean;
+  /** Priority locked at the first focus session (credit is paid at this priority). */
+  credit_priority?: Priority | null;
   created_by: Actor;
   /** The AI client that created it (e.g. "claude-ai", "openai-mcp"), if any. */
   created_client: string | null;

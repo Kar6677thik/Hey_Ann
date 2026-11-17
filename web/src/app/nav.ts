@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, History, KanbanSquare, ListChecks, Settings, Sun, type LucideIcon } from 'lucide-react';
+import { BarChart3, CalendarDays, History, Hourglass, KanbanSquare, ListChecks, Settings, Sun, type LucideIcon } from 'lucide-react';
 import { useCallback } from 'react';
 import { useLocation, useSearch } from 'wouter';
 
@@ -15,6 +15,7 @@ export const NAV: NavItem[] = [
   { href: '/calendar', label: 'Calendar', icon: CalendarDays, keys: 'G C' },
   { href: '/insights', label: 'Insights', icon: BarChart3, keys: 'G I' },
   { href: '/activity', label: 'Activity', icon: History, keys: 'G A' },
+  { href: '/wallet', label: 'Wallet', icon: Hourglass, keys: 'G W' },
 ];
 export const SETTINGS_NAV: NavItem = { href: '/settings', label: 'Settings', icon: Settings, keys: 'G S' };
 

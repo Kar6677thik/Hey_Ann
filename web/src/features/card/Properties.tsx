@@ -91,7 +91,7 @@ function DueField({ card, today }: { card: Card; today: string }) {
         }}
         placeholder={info ? info.full : 'next fri 5pm…'}
         aria-describedby="f-due-hint"
-        className="h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-sm text-text placeholder:text-text hover:border-border focus:border-accent focus:bg-surface focus:outline-none focus:placeholder:text-faint"
+        className={cn('h-8 min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-2 text-sm text-text hover:border-border focus:border-accent focus:bg-surface focus:outline-none focus:placeholder:text-faint', info ? 'placeholder:text-text' : 'placeholder:text-faint')}
       />
       <span id="f-due-hint" className="flex items-center gap-1.5">
         {editing && text.trim() ? (

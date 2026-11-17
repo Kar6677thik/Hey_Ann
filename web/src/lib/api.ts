@@ -67,6 +67,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+/** Raw typed request, for feature modules with their own endpoint groups (e.g. lib/wallet.ts). */
+export const apiRequest = request;
+
 const qs = (params: Record<string, string | number | boolean | null | undefined>) => {
   const s = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '' && v !== false) s.set(k, String(v));

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hey Ann wall</string>
+    <string name="service_name">Hey Ann wall</string>
+    <string name="service_summary">Sends you home from walled apps when you have no screen minutes.</string>
+    <string name="service_description">Hey Ann wall only notices which app comes to the front. If it is one of the apps you walled in Hey Ann, the wallet is active and no session is running, it presses Home and shows your balance. It never reads screen content, and it never touches Settings, your launcher, keyboard, calls, messages, the camera or any app you did not wall. Switch it off here at any time: nothing is blocked while it is off.</string>
+</resources>

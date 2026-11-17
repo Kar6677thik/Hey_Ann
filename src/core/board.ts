@@ -106,6 +106,8 @@ export class Board {
   readonly db: DB;
   readonly dbPath: string;
   readonly events = new EventEmitter();
+  /** Called synchronously after every committed batch (the wallet reconciles card credit here). */
+  readonly afterCommit: ((batch: Batch) => void)[] = [];
   private settingsCache: Settings | null = null;
 
   constructor(path = DEFAULT_DB_PATH) {
@@ -212,7 +214,7 @@ export class Board {
       due_at: r.due_at, due_has_time: !!r.due_has_time, planned_for: r.planned_for, estimate_min: r.estimate_min, spent_min: r.spent_min,
       project_id: r.project_id, tags, checklist: j<ChecklistItem[]>(r.checklist, []), links: j<CardLink[]>(r.links, []),
       blocked_reason: r.blocked_reason, needs_review: !!r.needs_review, recurrence: j<Recurrence | null>(r.recurrence, null),
-      focus_started_at: r.focus_started_at, created_by: r.created_by, created_client: r.created_client, source_utterance: r.source_utterance,
+      focus_started_at: r.focus_started_at, credit_pending: !!r.credit_pending, credit_priority: r.credit_priority ?? null, created_by: r.created_by, created_client: r.created_client, source_utterance: r.source_utterance,
       created_at: r.created_at, updated_at: r.updated_at, started_at: r.started_at, completed_at: r.completed_at, archived_at: r.archived_at,
       version: r.version,
     };
@@ -359,6 +361,9 @@ export class Board {
     });
     if (tx.touchedSettings) this.settingsCache = null;
     if (batch) {
+      for (const hook of this.afterCommit) {
+        try { hook(batch); } catch (e) { console.error('[hey-ann] after-commit hook failed:', e); }
+      }
       const ev: BoardEvent = { type: 'changed', batch: { id: batch.id, at: batch.at, actor: batch.actor, client: batch.client, action: batch.action, summary: batch.summary, utterance: batch.utterance, undone_at: batch.undone_at, undoes: batch.undoes } };
       queueMicrotask(() => this.events.emit('board', ev));
     }
@@ -707,9 +712,11 @@ export class Tx {
       if (ACTIVE_KINDS.has(to) && !before.started_at) sets.started_at = this.now;
       if (to === 'done') {
         sets.completed_at = this.now;
+        // Ann's completions earn nothing until the owner confirms them in the web app.
+        sets.credit_pending = this.meta.actor === 'ann' ? 1 : 0;
         if (before.focus_started_at) Object.assign(sets, this.stopFocusSets(before));
         sets.blocked_reason = null;
-      } else if (from === 'done') sets.completed_at = null;
+      } else if (from === 'done') { sets.completed_at = null; sets.credit_pending = 0; }
       if (to === 'done' && before.recurrence) {
         spawned = this.spawnNext(before);
         sets.recurrence = null;
@@ -833,7 +840,8 @@ export class Tx {
       if (doing) cur = this.updateCard(id, { column_id: doing.id });
     }
     if (cur.focus_started_at) return cur;
-    return this.writeRaw(cur, { focus_started_at: this.now });
+    // Lock the priority that credit is paid at, so raising it just before finishing earns nothing extra.
+    return this.writeRaw(cur, { focus_started_at: this.now, ...(cur.credit_priority === null ? { credit_priority: cur.priority } : {}) });
   }
 
   logTime(id: number, minutes: number): Card {

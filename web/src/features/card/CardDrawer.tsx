@@ -17,6 +17,7 @@ import { Checklist } from './Checklist.tsx';
 import { Links } from './Links.tsx';
 import { Notes } from './Notes.tsx';
 import { Properties } from './Properties.tsx';
+import { CardCredit } from '../wallet/CardCredit.tsx';
 import { parseDuration, useCardSave } from './useCardSave.ts';
 
 export function CardDrawerHost() {
@@ -286,6 +287,7 @@ function DrawerBody({ card, activity, index }: { card: Card; activity: import('.
 
       <div className="mt-5">
         <Properties card={card} index={index} />
+        <CardCredit card={card} done={col?.kind === 'done'} />
       </div>
       <hr className="my-5 border-rule" />
       <Notes card={card} />
