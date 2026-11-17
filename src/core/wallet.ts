@@ -182,6 +182,23 @@ export class Wallet {
   }
 
   /**
+   * End the baseline week early: the wall goes up at the start of `day` (today or later, default tomorrow). The phone
+   * usage already reported is the baseline. Can only move the date earlier, never push the wall back.
+   */
+  endBaseline(day?: string, now = Date.now()) {
+    const s = this.state();
+    if (this.phase(now) !== 'baseline' || !s.baseline_until) throw new BoardError('the wallet is not in its baseline week', 409);
+    const today = localDay(now, this.tz);
+    const target = day ?? addDays(today, 1);
+    if (target < today) throw new BoardError('the wall can start today at the earliest');
+    if (target >= s.baseline_until) throw new BoardError(`the baseline already ends ${s.baseline_until}; this can only bring it forward`);
+    s.baseline_until = target;
+    this.save(s);
+    this.tick(now);
+    return this.summary(now);
+  }
+
+  /**
    * Change rules. While off or in the baseline week: immediate. Once active: loosening waits until next Monday
    * (no impulsive escape hatch); walling more apps applies at once.
    */

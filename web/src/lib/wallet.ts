@@ -100,6 +100,8 @@ export const walletApi = {
   summary: () => apiRequest<WalletSummary>('GET', '/wallet'),
   ledger: (before?: number, limit = 40) => apiRequest<{ items: LedgerRow[] }>('GET', `/wallet/ledger?limit=${limit}${before ? `&before=${before}` : ''}`),
   start: (baseline: boolean) => apiRequest<WalletSummary>('POST', '/wallet/start', { baseline }),
+  /** Bring the end of the baseline week forward: the wall goes up at the start of `day` (default tomorrow). */
+  endBaseline: (day?: string) => apiRequest<WalletSummary>('POST', '/wallet/end-baseline', { day }),
   setRules: (patch: Partial<Rules>) => apiRequest<{ effective: string; rules: Rules }>('PATCH', '/wallet/rules', patch),
   confirm: (cardId: number, accept: boolean) => apiRequest<{ balance: number }>('POST', `/wallet/confirm/${cardId}`, { accept }),
   veto: (id: number) => apiRequest<{ entry: LedgerRow; balance: number }>('POST', `/wallet/veto/${id}`),

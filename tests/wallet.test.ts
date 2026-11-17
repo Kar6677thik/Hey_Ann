@@ -230,3 +230,15 @@ test('phone API: device tokens, state, spend, revoke', async () => {
   const fine = await call('/api/wallet/fine', { method: 'POST', body: JSON.stringify({ minutes: 3, reason: 'cheated on a session' }) });
   assert.equal((await fine.json()).balance, 2);
 });
+
+test('the baseline can end early (wall up tomorrow), never be pushed back', () => {
+  const { b, w } = setup({ baseline: true });
+  const today = b.today();
+  assert.throws(() => w.endBaseline(addDays(today, 30)), /only bring it forward/);
+  assert.throws(() => w.endBaseline(addDays(today, -1)), /today at the earliest/);
+  w.endBaseline();
+  assert.equal(w.phase(), 'baseline', 'still measuring today');
+  const tomorrow = startOfDay(addDays(today, 1), TZ) + 3600_000;
+  assert.equal(w.phase(tomorrow), 'active');
+  assert.throws(() => w.endBaseline(undefined, tomorrow), /not in its baseline week/);
+});

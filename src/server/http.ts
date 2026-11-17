@@ -364,6 +364,10 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   api.get('/wallet', (c) => c.json(wallet.summary()));
   api.get('/wallet/ledger', (c) => c.json({ items: wallet.ledger({ limit: c.req.query('limit') ? num(c.req.query('limit')) : 50, before: c.req.query('before') ? num(c.req.query('before')) : undefined }) }));
   api.post('/wallet/start', async (c) => c.json(wallet.start({ baseline: (await body(c)).baseline !== false })));
+  api.post('/wallet/end-baseline', async (c) => {
+    const b = await body(c);
+    return c.json(wallet.endBaseline(b.day && isDay(b.day) ? b.day : undefined));
+  });
   api.patch('/wallet/rules', async (c) => c.json(wallet.setRules(await body(c))));
   api.post('/wallet/confirm/:cardId', async (c) => c.json({ card: wallet.confirmCredit(num(c.req.param('cardId')), (await body(c)).accept !== false), balance: wallet.balance() }));
   api.post('/wallet/veto/:id', (c) => c.json({ entry: wallet.veto(num(c.req.param('id'))), balance: wallet.balance() }));
