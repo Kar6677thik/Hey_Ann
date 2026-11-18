@@ -8,6 +8,7 @@ import { buildMcpServer } from '../src/mcp/server.ts';
 import { createServers } from '../src/server/http.ts';
 import { loadConfig } from '../src/server/config.ts';
 import { Owner, makeVerifier } from '../src/server/owner.ts';
+import { getWallet } from '../src/core/wallet.ts';
 import { tokenVerifier } from '../src/server/oauth.ts';
 
 async function mcp(board: Board, scopes?: Set<string>) {
@@ -22,6 +23,21 @@ async function mcp(board: Board, scopes?: Set<string>) {
   };
   return { client, call };
 }
+
+test('MCP: wall_apps lists, walls and unwalls, and needs a reason to change anything', async () => {
+  const board = new Board(':memory:');
+  getWallet(board).start({ baseline: false });
+  const { call } = await mcp(board);
+  assert.match((await call('wall_apps')).text, /com\.instagram\.android/);
+  assert.ok((await call('wall_apps', { unwall: ['com.instagram.android'] })).error);
+  const r = await call('wall_apps', { wall: ['com.whatsapp'], unwall: ['com.instagram.android'], reason: 'user asked; Instagram needed for a client project' });
+  assert.ok(!r.error, r.text);
+  assert.match(r.text, /Walled now: com\.whatsapp[\s\S]*Unwalled now: com\.instagram\.android/);
+  assert.match((await call('wallet')).text, /Walled apps: (?![\s\S]*instagram)[\s\S]*com\.whatsapp/);
+  assert.ok((await call('wall_apps', { wall: ['com.x'] })).error);
+  const ro = await mcp(board, new Set(['heyann.read']));
+  assert.ok((await ro.call('wall_apps', { wall: ['com.y.z'], reason: 'no write scope' })).error);
+});
 
 test('MCP: tools are listed with annotations, and a Hey Ann session works end to end', async () => {
   const board = new Board(':memory:');

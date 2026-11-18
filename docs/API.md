@@ -118,7 +118,7 @@ Quick-add syntax:
 | GET | `/wallet` | | Summary: phase, balance, today's figures, debt, `pending_credit`, `vetoable`, `phone`, `rules`, `pending_rules`, `pause_days` |
 | GET | `/wallet/ledger` | `limit`, `before` (ledger id) | `{ items }` |
 | POST | `/wallet/start` | `{ baseline?: boolean }` (default true: a 7-day measurement week) | Summary |
-| PATCH | `/wallet/rules` | `Partial<Rules>` | `{ effective, rules }`. Once active, changes wait until next Monday; walling more apps applies now |
+| PATCH | `/wallet/rules` | `Partial<Rules>` | `{ effective, rules }`. Once active, changes wait until next Monday; walling more apps applies now. Ann's `wall_apps` MCP tool walls or unwalls at once (ledger kind `wall`, 0 min) |
 | POST | `/wallet/confirm/:cardId` | `{ accept: boolean }` | Confirms or declines credit for a card Ann completed |
 | POST | `/wallet/veto/:id` | | Reverses one of Ann's grants or fines within 24h |
 | POST | `/wallet/pause` | `{ day?, reason }` | Declares a pause day |
