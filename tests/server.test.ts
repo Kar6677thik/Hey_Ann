@@ -116,7 +116,7 @@ test('HTTP deployed: password login, remembered session survives a new Owner (re
   assert.equal((await call('/api/board', { headers: { cookie: session } })).status, 200);
   // Signed in, but the write comes from another site: refused even with a valid session.
   for (const path of ['/api/wallet/fine', '/api/wallet/end-baseline']) {
-    for (const headers of [{ cookie: session, origin: 'https://evil.example' }, { cookie: session, 'sec-fetch-site': 'cross-site' }]) {
+    for (const headers of [{ cookie: session, origin: 'https://evil.example' }, { cookie: session, 'sec-fetch-site': 'cross-site' }] as Record<string, string>[]) {
       const xs = await call(path, { method: 'POST', headers, body: JSON.stringify({ minutes: 5, reason: 'cross-site attempt' }) });
       assert.equal(xs.status, 403, `${path} ${JSON.stringify(headers)}`);
     }
@@ -163,4 +163,32 @@ test('HTTP MCP listener: OAuth token checks (audience, subject, scope)', async (
   assert.deepEqual((await meta.json()).authorization_servers, ['https://auth.example/']);
   const ui = await app!.fetch(new Request('https://ann-mcp.example/api/board', { headers: init.headers }), { remoteAddress: '127.0.0.1' });
   assert.equal(ui.status, 404, 'the MCP listener never serves the API');
+});
+
+test('MCP: Socrates study tasks pass through add_cards; results carry openable card urls', async () => {
+  process.env.HEYANN_PUBLIC_ORIGIN = 'https://heyann.example.ts.net';
+  const board = new Board(':memory:');
+  const server = buildMcpServer(board, { client: 'Test' });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  await server.connect(a);
+  const client = new Client({ name: 'test', version: '1' });
+  await client.connect(b);
+  const call = async (name: string, args: Record<string, unknown>) => ((await client.callTool({ name, arguments: args })) as any).content[0].text as string;
+  const task = {
+    title: 'Study: Integrals', reason: 'Mastery 42% and falling', estimate_min: 20,
+    session_url: 'https://socrates.example/study/start?mode=weak&tag=7',
+    source: { app: 'socrates', id: 'tag:7', url: 'https://socrates.example/library?tag=7', title: 'Weak area: Integrals' },
+  };
+  const added = await call('add_cards', { cards: [task] });
+  assert.match(added, /https:\/\/heyann\.example\.ts\.net\/card\/1/);
+  assert.match(added, /from socrates: Weak area: Integrals/);
+  const card = board.mustCard(1);
+  assert.equal(card.notes, 'Mastery 42% and falling');
+  assert.equal(card.estimate_min, 20);
+  assert.equal(card.links[0].url, task.session_url);
+  const again = await call('add_cards', { cards: [task] });
+  assert.match(again, /Already on the board/);
+  assert.equal(board.openCards().length, 1);
+  assert.match(await call('get_card', { card: 1 }), /url: https:\/\/heyann\.example\.ts\.net\/card\/1/);
+  delete process.env.HEYANN_PUBLIC_ORIGIN;
 });

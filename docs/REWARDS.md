@@ -145,6 +145,49 @@ Fixed rules can't foresee everything ("I spent the day at the hospital", "I used
 2. Web: wallet page, confirm-Ann-completions, veto, rules settings.
 3. The Android app, as a separate repo.
 
+## 10. Proposal: study in Socrates earns minutes (awaiting owner approval)
+
+**Status:** agreed with the Socrates thread on 18 Nov 2026. Socrates documents the emitting side in its own `docs/REWARDS.md`. Nothing is built on Hey Ann's side until the Orbit thread defines the app-to-app transport (a signed call or an event outbox, using Orbit Identity client credentials), and until you approve this section.
+
+**The principle:** real study should pay like focused work, but only on the Socrates server's say-so. Claude reporting "they studied" earns nothing. That keeps the core rule from §3: minutes come from verified work, never from a claim.
+
+### What Socrates measures (server clocks only)
+
+- **Credited time per attempt:** the server-side gap since the previous answer in the same session (or since the session started).
+  - Capped at 3 min per attempt, or 6 min for written and code answers.
+  - Gaps over 10 min count 0.
+  - The browser's own timer can only lower the figure, never raise it. Browser timings can be edited, so they are never trusted to add time.
+- **Which attempts count:**
+  - **Count:** due reviews, never-seen questions, and questions answered wrong in the last 24 h.
+  - **Never count:** re-answering something answered correctly in the last 24 h; questions created less than 24 h ago (this blocks "write easy questions, then answer them"); undone attempts.
+- **Weighting by how the answer was graded:**
+  - Graded by the server (choices, numbers, cloze, code with tests): 100%.
+  - Flashcards and self-graded written answers: 50%.
+  - Written answers graded through `submit_grades`: 100%.
+  - Ungraded: 0, unless graded within 48 h.
+- **Events are emitted per session, after it closes:** when you end it, or 30 minutes after the last answer, so undo and grading have settled.
+  - `study_minutes`: `{event_id, day, minutes, intervals: [[start, end]…], session_id, attempts_credited}`.
+  - A `…:late` supplement carries extra minutes if grading finishes later.
+  - `mastery_up`: when a leaf tag first crosses 50%, 70% or 85% mastery. It needs at least 10 counted attempts on at least 2 study days, and each threshold pays once per tag, ever.
+  - Socrates never emits more than 180 study minutes a day.
+  - Event ids are stable, so delivering an event twice changes nothing.
+
+### How Hey Ann prices it
+
+| | Rule |
+|---|---|
+| Study minutes | × **0.25**, the same rate as card focus. Priority and on-time multipliers don't apply; there's no card. |
+| Mastery thresholds | **+3** each, at most **3 a day**. These count toward the existing 3-bonuses-a-day limit. |
+| Daily caps | Study earnings count toward the existing **60/day** cap, with a **30/day sub-cap** from study, so finishing real cards stays the main way to earn. |
+| No double counting | Study intervals that overlap a running Hey Ann focus timer are voided, because that time is already paid as focus. Intervals that overlap a phone spend session are voided, the same rule as §4. |
+| Day | Socrates' `day` (the owner's date, rolling over at 04:00) decides which day's sub-cap an event uses. The ledger time is when the event arrives. |
+| Ledger | New kinds `study` and `mastery`, `source: socrates`, with `dedupe = event_id`. They sit outside board undo, like all wallet rows. |
+| Pause days, baseline, debt | They behave like focus earnings: they earn during the baseline and on pause days, and repay debt at 1.5×. |
+
+**In practice:** a 40-minute real review session is worth about **10 minutes** of phone. With the 30/day sub-cap, at most **2 hours** of study a day can earn, and the rest of the 60 must come from cards.
+
+**Still to settle with the Orbit thread:** the transport, authentication (Orbit Identity client credentials, Socrates as the only allowed client), and replay protection beyond the event id.
+
 ## Sources
 
 Allcott, Gentzkow & Song, "Digital Addiction", *AER* 2022 · contingency-management meta-analyses (PMC4203362, PMC5385000, PMC8034391) · Deci, Koestner & Ryan 1999 · Blanken et al. 2015 (moral licensing) · Marlatt's relapse model (PMC3296289) · Silverman & Barasch 2023 (streaks) · Patel et al. 2016 (loss-framed incentives) · Giné, Karlan & Zinman (CARES) · John 2020 (commitment contracts) · Grüning et al., *PNAS* 2023 (one sec) · Haliburton et al., CHI 2024 · Beeminder blog (akrasia horizon, pledge caps) · Android: AccessibilityService, `setPackagesSuspended` (Device Owner), Curbox/DigiPaws (open-source blockers) · Android 13+ restricted settings for sideloaded apps.

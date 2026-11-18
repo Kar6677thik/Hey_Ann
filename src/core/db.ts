@@ -206,6 +206,10 @@ const MIGRATIONS: string[] = [
     closing INTEGER NOT NULL
   );
   `,
+  /* 3: where a card came from in another app (Orbit Hub) */ `
+  ALTER TABLE cards ADD COLUMN source TEXT;   -- JSON {app, id, url?, title?}
+  CREATE INDEX cards_source ON cards(json_extract(source, '$.app'), json_extract(source, '$.id')) WHERE source IS NOT NULL;
+  `,
 ];
 
 export function openDb(path = DEFAULT_DB_PATH): DB {

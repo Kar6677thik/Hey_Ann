@@ -15,6 +15,7 @@ import { MenuItem, Modal, Popover, Sheet } from '../../components/ui/overlay.tsx
 import { BatchItem } from '../activity/BatchItem.tsx';
 import { Checklist } from './Checklist.tsx';
 import { Links } from './Links.tsx';
+import { Source } from './Source.tsx';
 import { Notes } from './Notes.tsx';
 import { Properties } from './Properties.tsx';
 import { CardCredit } from '../wallet/CardCredit.tsx';
@@ -287,6 +288,7 @@ function DrawerBody({ card, activity, index }: { card: Card; activity: import('.
 
       <div className="mt-5">
         <Properties card={card} index={index} />
+        <Source card={card} />
         <CardCredit card={card} done={col?.kind === 'done'} />
       </div>
       <hr className="my-5 border-rule" />

@@ -73,6 +73,8 @@ export interface Card {
   credit_pending: boolean;
   /** Priority locked at the first focus session (credit is paid at this priority). */
   credit_priority?: Priority | null;
+  /** Where the card came from in another app ("Socrates weak area: Integrals"), or null. */
+  source: CardSource | null;
   created_by: Actor;
   /** The AI client that created it (e.g. "claude-ai", "openai-mcp"), if any. */
   created_client: string | null;
@@ -240,4 +242,17 @@ export interface Insights {
 export interface BoardEvent {
   type: 'changed';
   batch: Pick<Batch, 'id' | 'at' | 'actor' | 'client' | 'action' | 'summary' | 'utterance' | 'undone_at' | 'undoes'>;
+}
+
+/**
+ * A reference to the thing in another app a card was made from (the Orbit Hub convention, shared with Socrates, Slate
+ * and Sprawl). `url` is an address the other app returned, copied as-is (never built by Hey Ann or a model).
+ */
+export interface CardSource {
+  /** Short app slug: "socrates", "slate", "sprawl", … */
+  app: string;
+  /** Stable id within that app, e.g. "tag:42". Hey Ann dedupes open cards on app + id. */
+  id: string;
+  url?: string;
+  title?: string;
 }
