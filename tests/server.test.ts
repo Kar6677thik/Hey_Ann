@@ -115,9 +115,11 @@ test('HTTP deployed: password login, remembered session survives a new Owner (re
   const session = cookie.split(';')[0];
   assert.equal((await call('/api/board', { headers: { cookie: session } })).status, 200);
   // Signed in, but the write comes from another site: refused even with a valid session.
-  for (const headers of [{ cookie: session, origin: 'https://evil.example' }, { cookie: session, 'sec-fetch-site': 'cross-site' }]) {
-    const xs = await call('/api/wallet/fine', { method: 'POST', headers, body: JSON.stringify({ minutes: 5, reason: 'cross-site attempt' }) });
-    assert.equal(xs.status, 403);
+  for (const path of ['/api/wallet/fine', '/api/wallet/end-baseline']) {
+    for (const headers of [{ cookie: session, origin: 'https://evil.example' }, { cookie: session, 'sec-fetch-site': 'cross-site' }]) {
+      const xs = await call(path, { method: 'POST', headers, body: JSON.stringify({ minutes: 5, reason: 'cross-site attempt' }) });
+      assert.equal(xs.status, 403, `${path} ${JSON.stringify(headers)}`);
+    }
   }
   const sameOrigin = await call('/api/quick-add', { method: 'POST', headers: { cookie: session, origin: 'https://heyann.example.ts.net' }, body: JSON.stringify({ text: 'Same-origin write' }) });
   assert.equal(sameOrigin.status, 200);
