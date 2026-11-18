@@ -169,6 +169,7 @@ export const KIND_LABEL: Record<string, string> = {
   back: 'Went back',
   pause: 'Pause day',
   expire: 'Expired',
+  wall: 'Walled apps',
 };
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? capitalise(k.replace(/_/g, ' '));
 

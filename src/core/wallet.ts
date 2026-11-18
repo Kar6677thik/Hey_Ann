@@ -245,6 +245,31 @@ export class Wallet {
     return { effective, rules: next };
   }
 
+  /**
+   * Wall or unwall apps right away, skipping the Monday wait (Ann's call, made on the owner's behalf).
+   * Any pending rule change keeps the same app list so it doesn't undo this when it lands.
+   * Logged as a zero-minute ledger row so the owner sees who changed what and why.
+   */
+  setWalled(change: { wall?: string[]; unwall?: string[] }, reason: string, by: Source = 'ann', now = Date.now()): { walled: string[]; added: string[]; removed: string[] } {
+    const pkg = /^[a-zA-Z][\w]*(\.[\w]+)+$/;
+    const wall = [...new Set(change.wall ?? [])], unwall = [...new Set(change.unwall ?? [])];
+    const bad = [...wall, ...unwall].find((p) => !pkg.test(p));
+    if (bad) throw new BoardError(`"${bad}" is not an Android package name (like com.instagram.android)`);
+    if (wall.some((p) => unwall.includes(p))) throw new BoardError('an app cannot be walled and unwalled at once');
+    const cur = this.rules(now).walled_apps;
+    const added = wall.filter((p) => !cur.includes(p));
+    const removed = unwall.filter((p) => cur.includes(p));
+    if (!added.length && !removed.length) return { walled: cur, added, removed };
+    const walled = [...cur.filter((p) => !removed.includes(p)), ...added];
+    const s = this.state();
+    s.rules = { ...DEFAULT_RULES, ...s.rules, walled_apps: walled };
+    if (s.pending) s.pending.rules = { ...s.pending.rules, walled_apps: walled };
+    this.save(s);
+    const what = [added.length ? `walled ${added.join(', ')}` : '', removed.length ? `unwalled ${removed.join(', ')}` : ''].filter(Boolean).join('; ');
+    this.insert(0, 'wall', `${what[0].toUpperCase()}${what.slice(1)}: ${reason.trim().slice(0, 200)}`, { source: by, now });
+    return { walled, added, removed };
+  }
+
   // ------------------------------------------------------------------ ledger primitives
 
   balance(): number {

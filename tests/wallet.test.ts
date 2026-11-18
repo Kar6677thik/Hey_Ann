@@ -200,6 +200,25 @@ test('rule changes wait until next Monday once active; walling more apps applies
   assert.throws(() => w.setRules({ walled_apps: ['not a package'] }), /package names/);
 });
 
+test('Ann walls and unwalls apps at once, past the Monday wait, and a pending change keeps her list', () => {
+  const { w } = setup();
+  w.setRules({ rate: 0.5 }); // pending until Monday
+  const before = w.balance();
+  const r = w.setWalled({ wall: ['com.example.game'], unwall: ['com.netflix.mediaclient'] }, 'game walled; Netflix needed for a film course', 'ann');
+  assert.deepEqual([r.added, r.removed], [['com.example.game'], ['com.netflix.mediaclient']]);
+  assert.ok(w.rules().walled_apps.includes('com.example.game'));
+  assert.ok(!w.rules().walled_apps.includes('com.netflix.mediaclient'));
+  assert.ok(!w.phoneState().walled_apps.includes('com.netflix.mediaclient'));
+  assert.equal(w.rules().rate, 0.25);
+  assert.ok(!w.summary().pending_rules!.rules.walled_apps.includes('com.netflix.mediaclient'));
+  assert.equal(w.balance(), before);
+  const row = w.ledger({ limit: 1 })[0];
+  assert.equal(`${row.kind}:${row.amount}:${row.source}`, 'wall:0:ann');
+  assert.match(row.reason, /^Walled com\.example\.game; unwalled com\.netflix\.mediaclient/);
+  assert.equal(w.setWalled({ wall: ['com.example.game'] }, 'again', 'ann').added.length, 0);
+  assert.throws(() => w.setWalled({ wall: ['Instagram'] }, 'bad name', 'ann'), /package name/);
+});
+
 test('snoozing an overdue P1 costs minutes', () => {
   const { b, w } = setup();
   addCards(b, [{ title: 'Late urgent', priority: 'P1' as any, due: '2020-01-01' }], web);

@@ -103,11 +103,12 @@ cap: 60 SM per day
 
 ## 7. Ann's discretion: the unusual cases
 
-Fixed rules can't foresee everything ("I spent the day at the hospital", "I used a loophole", "my laptop died mid-focus"). Ann gets **one** wallet tool:
+Fixed rules can't foresee everything ("I spent the day at the hospital", "I used a loophole", "my laptop died mid-focus"). Ann gets a few wallet tools:
 
 - `adjust_wallet(amount, reason)`. Ann can grant **up to +15 SM a day** or fine **up to −20 SM a day**, and only for a reason she states. The reason is written to the ledger and shown in the web app.
 - Ann can also **declare a pause day** (sick, travel, emergency): no earning, no penalties, a flat 30 SM. Max 7 per month, and it can't be backdated more than 1 day.
-- Ann **cannot** change rules, the caps, the essentials list or the phone settings, and can't undo spending.
+- Ann has **full authority over which apps are walled** (`wall_apps`, owner's decision of 18 Nov 2026). Walling and unwalling both apply at once, skipping the Monday wait, and each change is a zero-minute ledger row with her reason. She unwalls only for real needs (an app needed for work, study or travel, or one walled by mistake), never because you want to scroll or are bargaining. Essentials stay unwalled whatever the list says.
+- Ann **cannot** change the other rules, the caps, the essentials list or the phone settings, and can't undo spending.
 - Any adjustment of more than 5 SM shows in the web app, where you can veto it within 24h. A veto reverses it.
 - Ann is told to be **strict**: she grants nothing for "I deserve it", and she fines you when you admit to cheating.
 - New read tools: `wallet` (balance, today's earnings and penalties, debt, streak). Plus a line added to `summary` and `get_board`, e.g. "Wallet: 34 SM · +18 today".
