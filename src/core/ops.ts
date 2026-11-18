@@ -1,7 +1,7 @@
 // High-level operations shared by MCP tools and the HTTP API: batch create with duplicate detection, batch update by
 // fuzzy reference, archive with confirmation, quick add. Unresolved or ambiguous references abort the whole batch:
 // nothing is written unless every card is identified.
-import { Board, BoardError, type BatchMeta, type CardInput, type CardPatch } from './board.ts';
+import { Board, BoardError, normSource, type BatchMeta, type CardInput, type CardPatch } from './board.ts';
 import type { Batch, Card } from './types.ts';
 import { resolveCard, similarCards, type Resolution } from './resolve.ts';
 import { parseQuickAdd } from './nlp.ts';
@@ -17,7 +17,7 @@ export interface AddResult {
   created: Card[];
   /** Items not created because a similar card exists (pass allow_duplicate to force). */
   duplicates: { title: string; existing: Card[] }[];
-  /** Same client_ref seen before: the existing card, nothing created. */
+  /** Same client_ref seen before, or an open card from the same source: the existing card, nothing created. */
   existing: Card[];
   notes: string[];
   batch: Batch | null;
@@ -38,10 +38,23 @@ export function addCards(board: Board, items: AddItem[], meta: BatchMeta, opts: 
       const prev = board.db.prepare('SELECT id FROM cards WHERE client_ref = ?').get(String(it.client_ref)) as { id: number } | undefined;
       if (prev) { existing.push(board.mustCard(prev.id)); continue; }
     }
+    // Same thing from another app (e.g. a Socrates weak tag) while an open card for it exists: report that card.
+    if (it.source) {
+      const src = normSource(it.source);
+      it.source = src;
+      const open = findOpenBySource(board, src.app, src.id);
+      if (open) { existing.push(open); continue; }
+      // Study cards from Socrates: tagged "study", in a Study project unless one was given.
+      if (src.app === 'socrates') {
+        if (it.project === undefined && it.project_id === undefined) it.project = 'Study';
+        if (!(it.tags ?? []).some((t) => t.toLowerCase() === 'study')) it.tags = [...(it.tags ?? []), 'study'];
+      }
+    }
     const key = it.title.trim().toLowerCase();
     if (seen.has(key) && !it.allow_duplicate) { duplicates.push({ title: it.title, existing: [] }); continue; }
     seen.add(key);
-    if (!it.allow_duplicate) {
+    // With a source, the source (checked above) is the identity; titles from other apps repeat by design.
+    if (!it.allow_duplicate && !it.source) {
       const sim = similarCards(board, it.title, pool, recent);
       if (sim.length) { duplicates.push({ title: it.title, existing: sim }); continue; }
     }
@@ -229,4 +242,13 @@ export function previewWrite<T>(board: Board, meta: BatchMeta, fn: (tx: import('
 
 export function todayOf(board: Board) {
   return localDay(Date.now(), board.tz);
+}
+
+/** An open (not done, not archived) card made from this source, if any. */
+export function findOpenBySource(board: Board, app: string, id: string): Card | null {
+  const doneIds = board.columns().filter((c) => c.kind === 'done').map((c) => c.id);
+  const row = board.db.prepare(`SELECT id FROM cards WHERE source IS NOT NULL AND archived_at IS NULL
+      AND json_extract(source, '$.app') = ? AND json_extract(source, '$.id') = ?
+      ${doneIds.length ? `AND column_id NOT IN (${doneIds.join(',')})` : ''} ORDER BY id DESC LIMIT 1`).get(app, id) as { id: number } | undefined;
+  return row ? board.mustCard(row.id) : null;
 }

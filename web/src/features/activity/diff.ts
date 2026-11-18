@@ -38,6 +38,8 @@ function cardDiffs(b: Partial<Card>, a: Partial<Card>, look: Lookup): FieldDiff[
   }
   if (b.blocked_reason !== a.blocked_reason) push('Blocked', b.blocked_reason ?? 'no', a.blocked_reason ?? 'no');
   if (b.recurrence?.label !== a.recurrence?.label) push('Repeats', b.recurrence?.label ?? dash, a.recurrence?.label ?? dash);
+  const src = (c: Partial<Card>) => (c.source ? (APP_NAMES[c.source.app] ?? c.source.app) + (c.source.title ? ': ' + c.source.title : '') : dash);
+  if (JSON.stringify(b.source ?? null) !== JSON.stringify(a.source ?? null)) push('From', src(b), src(a));
   if (b.notes !== a.notes) out.push({ field: 'Notes', before: b.notes ? `${b.notes.length} chars` : 'empty', after: a.notes ? `${a.notes.length} chars` : 'empty' });
   const bc = b.checklist ?? [];
   const ac = a.checklist ?? [];
@@ -86,7 +88,10 @@ export function describeChange(c: Change, look: Lookup): ChangeView {
     diffs = c.entity === 'card' ? cardDiffs(c.before as Partial<Card>, c.after as Partial<Card>, look) : genericDiffs(c.before, c.after);
   } else if (c.op === 'create' && c.entity === 'card' && isObj(c.after)) {
     const a = c.after as Partial<Card>;
-    diffs = cardDiffs({ tags: [], checklist: [], links: [], notes: '', title: a.title, spent_min: 0, needs_review: false, blocked_reason: null, focus_started_at: null, archived_at: null, recurrence: null, due_at: null, project_id: null, estimate_min: null, planned_for: null, column_id: a.column_id, priority: a.priority }, a, look).filter((d) => d.field !== 'Title');
+    diffs = cardDiffs({ tags: [], checklist: [], links: [], notes: '', title: a.title, spent_min: 0, needs_review: false, blocked_reason: null, focus_started_at: null, archived_at: null, recurrence: null, source: null, due_at: null, project_id: null, estimate_min: null, planned_for: null, column_id: a.column_id, priority: a.priority }, a, look).filter((d) => d.field !== 'Title');
   }
   return { entity: c.entity, id: c.entity_id, op: c.op, name, diffs };
 }
+
+/** Display names for apps a card can come from (other Orbit Hub apps). */
+export const APP_NAMES: Record<string, string> = { socrates: 'Socrates', slate: 'Slate', sprawl: 'Sprawl', orbit: 'Orbit' };

@@ -261,3 +261,31 @@ test('optimistic concurrency rejects stale web edits', () => {
   b.batch(web, (tx) => tx.updateCard(c.id, { title: 'V2' }));
   assert.throws(() => b.batch(web, (tx) => tx.updateCard(c.id, { title: 'V3', version: c.version })), /changed since/);
 });
+
+test('cards from another app: source is stored, open duplicates are reported, study defaults apply', () => {
+  const b = fresh();
+  const task = {
+    title: 'Study: Integrals', notes: 'Mastery 42% and falling', estimate_min: 20, links: ['https://socrates.example/study/start?mode=weak&tag=7'],
+    source: { app: 'Socrates', id: 'tag:7', url: 'https://socrates.example/library?tag=7', title: 'Weak area: Integrals' },
+  };
+  const first = addCards(b, [task], ann);
+  assert.equal(first.created.length, 1);
+  const c = first.created[0];
+  assert.deepEqual(c.source, { app: 'socrates', id: 'tag:7', url: 'https://socrates.example/library?tag=7', title: 'Weak area: Integrals' });
+  assert.ok(c.tags.includes('study'));
+  assert.equal(b.findProject('Study')?.id, c.project_id);
+  // The same weak tag tomorrow: reported, not duplicated.
+  const again = addCards(b, [{ ...task, title: 'Study: Integrals (again)' }], ann);
+  assert.equal(again.created.length, 0);
+  assert.equal(again.existing[0].id, c.id);
+  // Once done, a new card for the same source is allowed.
+  updateCards(b, [{ card: c.id, move_to: 'done' }], web);
+  assert.equal(addCards(b, [task], ann).created.length, 1);
+  // Undo restores the source too.
+  const r = updateCards(b, [{ card: c.id, source: null }], web);
+  assert.equal(b.mustCard(c.id).source, null);
+  b.undo(r.batch!.id, web);
+  assert.equal(b.mustCard(c.id).source?.id, 'tag:7');
+  assert.throws(() => addCards(b, [{ title: 'x', source: { app: 'bad app!', id: '1' } }], ann), /source.app/);
+  assert.throws(() => addCards(b, [{ title: 'x', source: { app: 'slate', id: '1', url: 'javascript:alert(1)' } }], ann), /source.url/);
+});

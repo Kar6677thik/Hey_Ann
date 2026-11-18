@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { openDb, transaction, DEFAULT_DB_PATH, type DB } from './db.ts';
 import type {
-  Actor, Batch, BoardEvent, BoardSnapshot, Card, CardLink, Change, ChecklistItem, Column, ColumnKind, EntityKind, Priority,
+  Actor, Batch, BoardEvent, BoardSnapshot, Card, CardLink, CardSource, Change, ChecklistItem, Column, ColumnKind, EntityKind, Priority,
   Project, Recurrence, Settings, Tag,
 } from './types.ts';
 import { localDay, endOfDay, isDay, isValidTimezone, localParts, parseDay, zonedTime, daysBetween, addDays } from './time.ts';
@@ -76,6 +76,8 @@ export interface CardInput {
   blocked_reason?: string | null;
   needs_review?: boolean;
   recurrence?: string | Recurrence | null;
+  /** Where it came from in another app; null clears. */
+  source?: CardSource | null;
   client_ref?: string;
 }
 
@@ -214,6 +216,7 @@ export class Board {
       due_at: r.due_at, due_has_time: !!r.due_has_time, planned_for: r.planned_for, estimate_min: r.estimate_min, spent_min: r.spent_min,
       project_id: r.project_id, tags, checklist: j<ChecklistItem[]>(r.checklist, []), links: j<CardLink[]>(r.links, []),
       blocked_reason: r.blocked_reason, needs_review: !!r.needs_review, recurrence: j<Recurrence | null>(r.recurrence, null),
+      source: j<CardSource | null>(r.source, null),
       focus_started_at: r.focus_started_at, credit_pending: !!r.credit_pending, credit_priority: r.credit_priority ?? null, created_by: r.created_by, created_client: r.created_client, source_utterance: r.source_utterance,
       created_at: r.created_at, updated_at: r.updated_at, started_at: r.started_at, completed_at: r.completed_at, archived_at: r.archived_at,
       version: r.version,
@@ -631,6 +634,7 @@ export class Tx {
         out.due_has_time = 0;
       }
     }
+    if (input.source !== undefined) out.source = input.source === null ? null : JSON.stringify(normSource(input.source));
     return out;
   }
 
@@ -647,11 +651,11 @@ export class Tx {
     const kind = this.board.kindOf(column_id);
     const position = opts.top === false ? this.positionAtEnd(column_id) : this.positionAtTop(column_id);
     const id = Number(this.db.prepare(`INSERT INTO cards(column_id, position, title, notes, priority, due_at, due_has_time, planned_for, estimate_min,
-      project_id, checklist, links, blocked_reason, needs_review, recurrence, created_by, created_client, source_utterance, client_ref,
+      project_id, checklist, links, blocked_reason, needs_review, recurrence, source, created_by, created_client, source_utterance, client_ref,
       created_at, updated_at, started_at, completed_at, version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
       column_id, position, v.title!, v.notes ?? '', v.priority ?? 2, v.due_at ?? null, v.due_has_time ?? 0, v.planned_for ?? null, v.estimate_min ?? null,
-      v.project_id ?? null, v.checklist ?? '[]', v.links ?? '[]', v.blocked_reason ?? null, v.needs_review ?? 0, v.recurrence ?? null,
+      v.project_id ?? null, v.checklist ?? '[]', v.links ?? '[]', v.blocked_reason ?? null, v.needs_review ?? 0, v.recurrence ?? null, v.source ?? null,
       this.meta.actor, this.meta.client ?? null, this.meta.actor === 'ann' ? this.meta.utterance?.slice(0, 2000) ?? null : null, input.client_ref ?? null,
       this.now, this.now, ACTIVE_KINDS.has(kind) ? this.now : null, kind === 'done' ? this.now : null,
     ).lastInsertRowid);
@@ -670,7 +674,7 @@ export class Tx {
       throw new BoardError(`card #${id} changed since you loaded it (version ${before.version}, you had ${patch.version}). Reload and retry.`, 409, { card: before });
     const v = this.normalize(patch, before);
     const sets: Record<string, any> = {};
-    for (const k of ['title', 'notes', 'priority', 'due_at', 'due_has_time', 'planned_for', 'estimate_min', 'project_id', 'checklist', 'links', 'blocked_reason', 'needs_review', 'recurrence'] as const)
+    for (const k of ['title', 'notes', 'priority', 'due_at', 'due_has_time', 'planned_for', 'estimate_min', 'project_id', 'checklist', 'links', 'blocked_reason', 'needs_review', 'recurrence', 'source'] as const)
       if (v[k] !== undefined) sets[k] = v[k];
 
     if (patch.append_note) {
@@ -783,7 +787,7 @@ export class Tx {
     return this.createCard({
       title: card.title, notes: card.notes, column_id: todo.id, priority: card.priority, due_at, due_has_time: card.due_has_time,
       estimate_min: card.estimate_min, project_id: card.project_id, tags: card.tags,
-      checklist: card.checklist.map((i) => ({ text: i.text, done: false })), links: card.links, recurrence: r,
+      checklist: card.checklist.map((i) => ({ text: i.text, done: false })), links: card.links, recurrence: r, source: card.source,
     });
   }
 
@@ -883,6 +887,7 @@ export class Tx {
       due_has_time: snap.due_has_time ? 1 : 0, planned_for: snap.planned_for, estimate_min: snap.estimate_min, spent_min: snap.spent_min,
       project_id, checklist: JSON.stringify(snap.checklist), links: JSON.stringify(snap.links), blocked_reason: snap.blocked_reason,
       needs_review: snap.needs_review ? 1 : 0, recurrence: snap.recurrence ? JSON.stringify(snap.recurrence) : null,
+      source: snap.source ? JSON.stringify(snap.source) : null,
       focus_started_at: snap.focus_started_at, created_by: snap.created_by, created_client: snap.created_client,
       source_utterance: snap.source_utterance, created_at: snap.created_at, updated_at: this.now, started_at: snap.started_at,
       completed_at: snap.completed_at, archived_at: snap.archived_at, version: (cur?.version ?? snap.version) + 1,
@@ -1147,6 +1152,7 @@ function rowValue(c: Card, k: string): unknown {
     case 'checklist': return JSON.stringify(c.checklist);
     case 'links': return JSON.stringify(c.links);
     case 'recurrence': return c.recurrence ? JSON.stringify(c.recurrence) : null;
+    case 'source': return c.source ? JSON.stringify(c.source) : null;
     default: return (c as any)[k];
   }
 }
@@ -1172,6 +1178,25 @@ function normLinks(links: (string | CardLink)[]): CardLink[] {
     const title = typeof l === 'string' ? undefined : l.title?.trim().slice(0, 200) || undefined;
     return title ? { url: u.href, title } : { url: u.href };
   });
+}
+
+/** Validate a cross-app source reference. The url is kept exactly as the other app returned it (http(s) only). */
+export function normSource(s: unknown): CardSource {
+  const o = s as Partial<CardSource> | null;
+  if (!o || typeof o !== 'object') throw new BoardError('source must be { app, id, url?, title? }');
+  const app = String(o.app ?? '').trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]{1,30}$/.test(app)) throw new BoardError('source.app must be a short app name like "socrates"');
+  const id = String(o.id ?? '').trim();
+  if (!id || id.length > 200 || /[\u0000-\u001f]/.test(id)) throw new BoardError('source.id must be a stable id (1-200 characters)');
+  const out: CardSource = { app, id };
+  if (o.url !== undefined && o.url !== null && o.url !== '') {
+    let u: URL;
+    try { u = new URL(String(o.url)); } catch { throw new BoardError(`invalid source.url "${o.url}"`); }
+    if (!/^https?:$/.test(u.protocol) || u.href.length > 2000) throw new BoardError('source.url must be an http(s) address');
+    out.url = u.href;
+  }
+  if (o.title) out.title = clean(String(o.title), 200, 'source.title');
+  return out;
 }
 
 function wipValue(v: unknown): number | null {

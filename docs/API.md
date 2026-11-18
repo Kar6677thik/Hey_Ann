@@ -135,3 +135,14 @@ Quick-add syntax:
 - `POST /phone/usage` with `{ day, apps: { package: minutes } }`
 
 **Live updates:** `/events` also streams `event: wallet` with `{ entry, balance }` on every ledger row.
+
+## Card sources (Orbit Hub)
+
+Cards take an optional `source`, which records where the card came from in another Megatron app:
+- **Shape:** `{ app, id, url?, title? }`, e.g. `{ app: "socrates", id: "tag:7", url: "https://socrates…/library?tag=7", title: "Weak area: Integrals" }`.
+- **Where it's set:** `POST /cards` and `PATCH /cards/:id` (`null` clears it). It's returned on every card.
+- **No duplicates:** while an open card with the same `app` + `id` exists, a create returns that card instead of a new one. Over MCP it's reported as "Already on the board".
+- **The `url`:** must be http(s). It's stored exactly as the other app returned it.
+- **Socrates defaults:** cards with `app: "socrates"` get the tag `study`, and the project `Study` unless one is given.
+
+**Card addresses:** when `HEYANN_PUBLIC_ORIGIN` is set, MCP results carry each card's address, `{origin}/card/{id}` (the Sprawl/Slate convention). Clients copy it as-is and never build it.

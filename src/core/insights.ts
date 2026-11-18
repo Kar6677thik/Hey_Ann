@@ -196,6 +196,7 @@ export function cardLine(board: Board, c: Card, x: Ctx = ctx(board), opts: { col
   if (c.recurrence) bits.push(`↻ ${c.recurrence.label}`);
   if (c.blocked_reason) bits.push(`⛔ ${c.blocked_reason}`);
   if (c.focus_started_at) bits.push('⏱ focusing');
+  if (c.source) bits.push(`from ${c.source.app}${c.source.title ? `: ${c.source.title}` : ''}`);
   if (c.archived_at) bits.push('(archived)');
   return bits.join(' · ');
 }
