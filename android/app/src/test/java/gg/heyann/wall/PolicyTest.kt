@@ -139,12 +139,33 @@ class PolicyTest {
     @Test fun foregroundMinutesAcrossDayEdgesAndShutdown() {
         val start = 100 * min; val end = 200 * min
         val ev = listOf(
-            Policy.UsageEvent(110 * min, ig, "Main", Policy.PAUSED),          // already open at start: counts from start
+            Policy.UsageEvent(110 * min, ig, "Main", Policy.PAUSED),          // open before start: not assumed
             Policy.UsageEvent(150 * min, "com.c", "X", Policy.RESUMED),
             Policy.UsageEvent(160 * min, "com.c", "X", Policy.SHUTDOWN),
-            Policy.UsageEvent(170 * min, "com.c", "X", Policy.PAUSED),        // after shutdown: no open interval
+            Policy.UsageEvent(170 * min, "com.c", "X", Policy.PAUSED),        // after shutdown: nothing open
             Policy.UsageEvent(190 * min, "com.d", "Y", Policy.RESUMED),       // still open at end
         )
-        assertEquals(mapOf(ig to 10, "com.c" to 10, "com.d" to 10), Policy.foregroundMinutes(ev, start, end))
+        assertEquals(mapOf("com.c" to 10, "com.d" to 10), Policy.foregroundMinutes(ev, start, end))
+    }
+
+    @Test fun onlyOneAppInFrontAndUnpairedResumesDoNotLeak() {
+        // Settings resumes an activity and never logs its pause; the next app resuming takes the slot.
+        val ev = listOf(
+            Policy.UsageEvent(0, "com.android.settings", "Trampoline", Policy.RESUMED),
+            Policy.UsageEvent(5 * min, "com.whatsapp", "Main", Policy.RESUMED),
+            Policy.UsageEvent(35 * min, "com.whatsapp", "Main", Policy.PAUSED),
+        )
+        assertEquals(mapOf("com.android.settings" to 5, "com.whatsapp" to 30), Policy.foregroundMinutes(ev, 0, 24 * 60 * min))
+    }
+
+    @Test fun screenOffEndsUseAndIgnoredPackagesNeverCount() {
+        val ev = listOf(
+            Policy.UsageEvent(0, "com.sec.android.app.launcher", "Home", Policy.RESUMED),
+            Policy.UsageEvent(10 * min, ig, "Main", Policy.RESUMED),
+            Policy.UsageEvent(25 * min, "android", "", Policy.SCREEN_OFF),     // phone locked mid-scroll, no pause logged
+            Policy.UsageEvent(600 * min, ig, "Main", Policy.RESUMED),
+            Policy.UsageEvent(605 * min, ig, "Main", Policy.PAUSED),
+        )
+        assertEquals(mapOf(ig to 20), Policy.foregroundMinutes(ev, 0, 24 * 60 * min, setOf("com.sec.android.app.launcher")))
     }
 }

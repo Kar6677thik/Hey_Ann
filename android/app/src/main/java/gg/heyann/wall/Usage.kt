@@ -4,6 +4,8 @@ import android.app.AppOpsManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Process
 import java.time.LocalDate
 import java.time.ZoneId
@@ -16,6 +18,38 @@ object Usage {
     fun granted(ctx: Context): Boolean {
         val ops = ctx.getSystemService(AppOpsManager::class.java)
         return ops.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.packageName) == AppOpsManager.MODE_ALLOWED
+    }
+
+    /** Packages whose time in front is not "using the phone": launchers, system UI and this app. */
+    private fun notUsage(ctx: Context): Set<String> {
+        val set = hashSetOf(ctx.packageName, "com.android.systemui")
+        runCatching {
+            ctx.packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_ALL)
+                .forEach { set += it.activityInfo.packageName }
+        }
+        return set
+    }
+
+    /**
+     * The app in front right now according to usage events (the last activity resumed in the past few minutes and not
+     * paused since), or null if unknown or Usage access is off. Catches what window events miss, e.g. an app brought
+     * back from Recents. Reads package names only.
+     */
+    fun foregroundNow(ctx: Context): String? {
+        if (!granted(ctx)) return null
+        val now = System.currentTimeMillis()
+        val events = runCatching { ctx.getSystemService(UsageStatsManager::class.java).queryEvents(now - 5 * 60_000, now) }.getOrNull() ?: return null
+        var fg: String? = null
+        val e = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            when (e.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> fg = e.packageName
+                UsageEvents.Event.ACTIVITY_PAUSED -> if (e.packageName == fg) fg = null
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> fg = null
+            }
+        }
+        return fg
     }
 
     /** Minutes per package for one local day (up to now, for today). */
@@ -33,11 +67,12 @@ object Usage {
                 UsageEvents.Event.ACTIVITY_RESUMED -> Policy.RESUMED
                 UsageEvents.Event.ACTIVITY_PAUSED, UsageEvents.Event.ACTIVITY_STOPPED -> Policy.PAUSED
                 UsageEvents.Event.DEVICE_SHUTDOWN -> Policy.SHUTDOWN
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> Policy.SCREEN_OFF
                 else -> continue
             }
-            list += Policy.UsageEvent(e.timeStamp, e.packageName ?: continue, e.className ?: "", type)
+            list += Policy.UsageEvent(e.timeStamp, e.packageName ?: "", e.className ?: "", type)
         }
-        return Policy.foregroundMinutes(list, start, end)
+        return Policy.foregroundMinutes(list, start, end, notUsage(ctx))
             .entries.sortedByDescending { it.value }.take(150).associate { it.key to it.value }
     }
 

@@ -213,6 +213,36 @@ function Cell({ label, children, sub }: { label: string; children: ReactNode; su
   );
 }
 
+/** The baseline banner, with a way to bring the wall forward to tomorrow (two clicks: it can't be pushed back). */
+function BaselineBanner({ until, today }: { until: string; today: string }) {
+  const tomorrow = addDays(today, 1);
+  const [armed, setArmed] = useState(false);
+  const end = useWalletWrite(() => walletApi.endBaseline(tomorrow), () => `The wall goes up ${fmtDay(tomorrow)}`);
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-accent-soft px-3 py-2 text-[13px] text-text">
+      <p className="min-w-0 flex-1">
+        Baseline week until <span className="font-medium">{fmtDay(until)}</span>. Your phone only measures; nothing is walled or charged yet.
+      </p>
+      {until > tomorrow ? (
+        armed ? (
+          <span className="flex items-center gap-2">
+            <Button size="sm" variant="primary" onClick={() => end.mutate(undefined)} disabled={end.isPending}>
+              Yes, wall up {fmtDay(tomorrow)}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setArmed(false)}>
+              Not yet
+            </Button>
+          </span>
+        ) : (
+          <Button size="sm" onClick={() => setArmed(true)}>
+            Start the wall tomorrow
+          </Button>
+        )
+      ) : null}
+    </div>
+  );
+}
+
 function BalancePanel({ w }: { w: WalletSummary }) {
   const debt = w.balance < 0;
   const lo = w.debt_floor;
@@ -263,11 +293,7 @@ function BalancePanel({ w }: { w: WalletSummary }) {
         <span className="absolute right-0">{hi}</span>
       </div>
 
-      {w.phase === 'baseline' && w.baseline_until ? (
-        <p className="mt-4 rounded-md bg-accent-soft px-3 py-2 text-[13px] text-text">
-          Baseline week until <span className="font-medium">{fmtDay(w.baseline_until)}</span>. Your phone only measures; nothing is walled or charged yet.
-        </p>
-      ) : null}
+      {w.phase === 'baseline' && w.baseline_until ? <BaselineBanner until={w.baseline_until} today={t.day} /> : null}
       {pause ? (
         <p className="mt-4 rounded-md bg-[var(--pill-warning-bg)] px-3 py-2 text-[13px] text-[var(--pill-warning-ink)]">
           Pause day: {pause.reason}. No earning and no penalties today; a flat <span className="num">+{w.rules.pause_allowance}</span> instead.

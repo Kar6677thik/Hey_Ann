@@ -2,12 +2,14 @@
 #
 #   powershell -File scripts/install-phone.ps1            # build + install
 #   powershell -File scripts/install-phone.ps1 -NoBuild   # install the last build
+#   npm run phone -- -Address 192.168.0.8:40735          # connect to the IP:port shown under Wireless debugging
+#                                                         # (use this if the phone is not found: VPNs can block discovery)
 #
 # One-time setup (same Wi-Fi as this PC):
 #   Phone: Developer options > Wireless debugging > on > "Pair device with pairing code".
 #   PC:    adb pair <ip>:<pairing port>   (type the 6-digit code when asked)
 # After that, just turn Wireless debugging on (the Quick Settings tile is easiest) and run this script.
-param([switch]$NoBuild)
+param([switch]$NoBuild, [string]$Address)
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -25,6 +27,7 @@ if (-not (Test-Path $apk)) { throw "No APK at $apk. Run without -NoBuild." }
 # Only real phones: never an emulator.
 function Get-Phones { & $adb devices | Select-String '^(\S+)\s+device$' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Where-Object { $_ -notlike 'emulator-*' } }
 
+if ($Address) { & $adb connect $Address | Out-Host }
 $phones = @(Get-Phones)
 if (-not $phones) {
   # A paired phone with Wireless debugging on advertises itself over mDNS on the local network.
@@ -35,7 +38,7 @@ if (-not $phones) {
   Start-Sleep -Seconds 2
   $phones = @(Get-Phones)
 }
-if (-not $phones) { throw 'No phone found. Turn on Wireless debugging (same Wi-Fi as this PC) or plug in USB, then retry. First time? See the pairing steps at the top of this script.' }
+if (-not $phones) { throw 'No phone found. Turn on Wireless debugging (same Wi-Fi as this PC) and pass the IP:port it shows: npm run phone -- -Address <ip:port>. Or plug in USB. First time? See the pairing steps at the top of this script.' }
 # The same phone can show up twice (USB, its mDNS name, and IP:port): keep one entry per hardware serial.
 $bySerial = [ordered]@{}
 foreach ($p in $phones) {

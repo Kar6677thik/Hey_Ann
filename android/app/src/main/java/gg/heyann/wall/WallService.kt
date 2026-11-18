@@ -14,7 +14,8 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.inputmethod.InputMethodManager
 
 /**
- * The wall. It only watches which app comes to the front (TYPE_WINDOW_STATE_CHANGED, no window content),
+ * The wall. It only watches which app comes to the front (TYPE_WINDOW_STATE_CHANGED, plus usage events every 1.5 s
+ * for apps that come back from Recents without a window event; package names only, never window content),
  * and for a walled app in the active phase with no running session it presses HOME and opens BlockScreen.
  * If this service is off or crashes, nothing is blocked. It never relaunches the walled app.
  */
@@ -34,6 +35,22 @@ class WallService : AccessibilityService() {
         }
     }
 
+    /**
+     * Window events don't fire when an app comes back from Recents (or split screen), so while the screen is on and
+     * the wall is up, also ask usage events which app is in front every 1.5 s. Package names only; cheap query.
+     */
+    private val watch = object : Runnable {
+        override fun run() {
+            runCatching {
+                val st = Store.snapshot
+                if (st?.enforce == true && !Store.paused && getSystemService(PowerManager::class.java).isInteractive) {
+                    Usage.foregroundNow(this@WallService)?.let { if (it != packageName) { current = it; maybeBounce(it) } }
+                }
+            }
+            main.postDelayed(this, 1_500)
+        }
+    }
+
     override fun onServiceConnected() {
         Store.init(this)
         running = true
@@ -44,6 +61,8 @@ class WallService : AccessibilityService() {
         refresh()
         main.removeCallbacks(tick)
         main.postDelayed(tick, 60_000)
+        main.removeCallbacks(watch)
+        main.postDelayed(watch, 1_500)
     }
 
     override fun onDestroy() {
@@ -75,6 +94,11 @@ class WallService : AccessibilityService() {
         lastBounce = now
         lastBouncePkg = pkg
         performGlobalAction(GLOBAL_ACTION_HOME)
+        // Once it's in the background, ask Android to stop the walled app (allowed for background apps, a normal
+        // permission) so reopening it from Recents is a fresh launch, which the wall always sees.
+        main.postDelayed({
+            runCatching { getSystemService(android.app.ActivityManager::class.java).killBackgroundProcesses(pkg) }
+        }, 800)
         main.postDelayed({
             runCatching {
                 startActivity(
