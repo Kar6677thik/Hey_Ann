@@ -145,9 +145,9 @@ Fixed rules can't foresee everything ("I spent the day at the hospital", "I used
 2. Web: wallet page, confirm-Ann-completions, veto, rules settings.
 3. The Android app, as a separate repo.
 
-## 10. Proposal: study in Socrates earns minutes (awaiting owner approval)
+## 10. Study in Socrates earns minutes (approved)
 
-**Status:** agreed with the Socrates thread on 18 Nov 2026. Socrates documents the emitting side in its own `docs/REWARDS.md`. Nothing is built on Hey Ann's side until the Orbit thread defines the app-to-app transport (a signed call or an event outbox, using Orbit Identity client credentials), and until you approve this section.
+**Status:** agreed with the Socrates thread and **approved by the owner on 18 Nov 2026**. Socrates documents the emitting side in its own `docs/REWARDS.md`. Hey Ann builds the intake once the Orbit thread defines the app-to-app transport (a signed call or an event outbox, using Orbit Identity client credentials).
 
 **The principle:** real study should pay like focused work, but only on the Socrates server's say-so. Claude reporting "they studied" earns nothing. That keeps the core rule from §3: minutes come from verified work, never from a claim.
 
