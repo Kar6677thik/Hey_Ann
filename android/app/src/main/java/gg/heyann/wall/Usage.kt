@@ -30,6 +30,28 @@ object Usage {
         return set
     }
 
+    /**
+     * The app in front right now according to usage events (the last activity resumed in the past few minutes and not
+     * paused since), or null if unknown or Usage access is off. Catches what window events miss, e.g. an app brought
+     * back from Recents. Reads package names only.
+     */
+    fun foregroundNow(ctx: Context): String? {
+        if (!granted(ctx)) return null
+        val now = System.currentTimeMillis()
+        val events = runCatching { ctx.getSystemService(UsageStatsManager::class.java).queryEvents(now - 5 * 60_000, now) }.getOrNull() ?: return null
+        var fg: String? = null
+        val e = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(e)
+            when (e.eventType) {
+                UsageEvents.Event.ACTIVITY_RESUMED -> fg = e.packageName
+                UsageEvents.Event.ACTIVITY_PAUSED -> if (e.packageName == fg) fg = null
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> fg = null
+            }
+        }
+        return fg
+    }
+
     /** Minutes per package for one local day (up to now, for today). */
     fun minutes(ctx: Context, day: LocalDate): Map<String, Int> {
         val zone = ZoneId.systemDefault()

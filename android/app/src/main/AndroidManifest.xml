@@ -2,8 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- The only permissions: network to reach Hey Ann, and Usage access (granted by the user in Settings). -->
+    <!-- The only permissions: network to reach Hey Ann, stopping a walled app once it is in the background, and Usage
+         access (granted by the user in Settings). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Normal (install-time) permission: lets the wall stop a walled app it just sent to the background. -->
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
