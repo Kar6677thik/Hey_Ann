@@ -187,7 +187,31 @@ Fixed rules can't foresee everything ("I spent the day at the hospital", "I used
 
 **In practice:** a 40-minute real review session is worth about **10 minutes** of phone. With the 30/day sub-cap, at most **2 hours** of study a day can earn, and the rest of the 60 must come from cards.
 
-**Still to settle with the Orbit thread:** the transport, authentication (Orbit Identity client credentials, Socrates as the only allowed client), and replay protection beyond the event id.
+### How events arrive (built)
+
+Orbit fixed the transport (orbit-cloud `docs/17-orbit-hub.md` §7): a **signed push**, so an AI never carries an award.
+
+- **Where:** Socrates posts each event to `POST /internal/rewards` on Hey Ann's own listener (`:8082`).
+  - Nothing routes or tunnels to that listener. Its NetworkPolicy admits only the Socrates pod.
+- **What:** the body is a compact JWS (`Content-Type: application/jose`, at most 16 KB).
+  - Header: ES256, `typ: reward+jwt`, `kid`.
+  - Claims: `iss: socrates`, `aud: heyann-rewards`, `jti` = the event id, `iat`, `exp` at most 5 minutes later, and `event`.
+- **Checks, in order:**
+  1. the signature, against Socrates' public keys (`HEYANN_REWARDS_JWKS_FILE`; 1 to 3 keys, re-read when the ConfigMap changes);
+  2. `typ`, `iss` and `aud`;
+  3. `exp`, with 60 s of skew;
+  4. `iat`, no more than 60 s in the future;
+  5. `jti` equals `event.event_id`;
+  6. the event's schema.
+- **Answers:**
+  - 200 `applied` or `duplicate`;
+  - 401 for a bad signature or claims;
+  - 422 for a bad event;
+  - 503 for a temporary failure, which Socrates retries.
+- **Exactly once:** the event id is the ledger's permanent dedupe key. A re-signed retry gets `duplicate` and pays nothing.
+- **Every accepted event leaves a ledger row, even one that pays 0** (wallet off, a baseline event, a limit reached), with the reason. Refusals are logged by the server.
+- **Code:** `src/server/rewards.ts` and `Wallet.applyStudyEvent`.
+- **Live check without paying anything:** `npm run reward-vector -- --key <file>` prints a test public key and a signed 0-minute event.
 
 ## Sources
 

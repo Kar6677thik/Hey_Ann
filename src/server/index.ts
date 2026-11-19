@@ -6,6 +6,7 @@ import { loadConfig } from './config.ts';
 import { Owner } from './owner.ts';
 import { tokenVerifier } from './oauth.ts';
 import { createServers } from './http.ts';
+import { fileKeys, rewardVerifier, rewardsServer } from './rewards.ts';
 
 // Fail fast on bad configuration: a deployed instance must never start half-secured.
 const cfg = loadConfig();
@@ -15,6 +16,7 @@ const owner = cfg.credentialFile ? Owner.fromFile(cfg.credentialFile, board) : n
 const verifyToken = cfg.oauth ? tokenVerifier(cfg.oauth) : null;
 
 const { ui, mcp } = createServers(board, cfg, { owner, verifyToken });
+const rewards = cfg.rewardsPort ? rewardsServer(board, rewardVerifier(fileKeys(cfg.rewardsJwksFile!))) : null;
 
 const runBackup = () => {
   try {
@@ -40,6 +42,12 @@ const servers = [
 if (mcp && cfg.mcpPort) {
   servers.push(serve({ fetch: mcp.fetch, port: cfg.mcpPort, hostname: cfg.host }, () => {
     console.log(`MCP       ${cfg.oauth!.resource}  (Orbit Identity OAuth; listening on ${cfg.host}:${cfg.mcpPort})`);
+  }));
+}
+
+if (rewards && cfg.rewardsPort) {
+  servers.push(serve({ fetch: rewards.fetch, port: cfg.rewardsPort, hostname: cfg.host }, () => {
+    console.log(`Rewards   POST /internal/rewards  (Socrates' signed study events; listening on ${cfg.host}:${cfg.rewardsPort})`);
   }));
 }
 

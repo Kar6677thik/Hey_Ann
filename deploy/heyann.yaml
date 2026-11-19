@@ -3,11 +3,14 @@
 #   :8081 mcp  /mcp (Orbit Identity OAuth) + /.well-known/oauth-protected-resource only. cloudflared ->
 #              https://heyann-mcp.karthiksurkanti.in (path-filtered to exactly those paths); the Orbit Hub (namespace hub)
 #              also calls it in-cluster on the ClusterIP with the same tokens.
+#   :8082 rewards  POST /internal/rewards only: Socrates' signed study events (docs/REWARDS.md §10). Never routed or
+#              tunnelled; only the Socrates pod may connect.
 # Value to replace before applying:
 #   IMAGE_DIGEST    the digest deploy/import-image.sh printed
 # Provisioned separately, never in this file:
 #   Secret    heyann-owner   key "verifier" (npm run password, or Orbit.Credentials; a password of its own)
 #   ConfigMap heyann-jwks    key "jwks.json": Orbit Identity's public keys (curl https://auth.karthiksurkanti.in/.well-known/jwks)
+#   ConfigMap heyann-rewards-jwks  key "jwks.json": Socrates' rewards signing public key(s), 1 to 3 (rotation overlap)
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -73,6 +76,7 @@ spec:
           ports:
             - { name: ui, containerPort: 8080 }
             - { name: mcp, containerPort: 8081 }
+            - { name: rewards, containerPort: 8082 }
           env:
             - { name: HOST, value: "0.0.0.0" }
             - { name: PORT, value: "8080" }
@@ -96,6 +100,9 @@ spec:
             # Orbit Identity's owner subject (an identifier, not a secret).
             - { name: HEYANN_OAUTH_ALLOWED_SUBJECTS, value: "7356e980-f25e-4c82-84f1-b00c5f9783f0" }
             - { name: HEYANN_OAUTH_JWKS_FILE, value: /run/heyann/jwks/jwks.json }
+            # Study rewards: Socrates pushes signed events here; its public keys are re-read when the ConfigMap changes.
+            - { name: HEYANN_REWARDS_PORT, value: "8082" }
+            - { name: HEYANN_REWARDS_JWKS_FILE, value: /run/heyann/rewards/jwks.json }
           resources:
             # One Node process and SQLite; a personal board stays small.
             requests: { cpu: 25m, memory: 96Mi, ephemeral-storage: 16Mi }
@@ -114,6 +121,7 @@ spec:
             - { name: data, mountPath: /data }
             - { name: owner, mountPath: /run/heyann/owner, readOnly: true }
             - { name: jwks, mountPath: /run/heyann/jwks, readOnly: true }
+            - { name: rewards-jwks, mountPath: /run/heyann/rewards, readOnly: true }
             - { name: temporary, mountPath: /tmp }
       volumes:
         - name: data
@@ -122,6 +130,8 @@ spec:
           secret: { secretName: heyann-owner, defaultMode: 0440 }
         - name: jwks
           configMap: { name: heyann-jwks, defaultMode: 0444 }
+        - name: rewards-jwks
+          configMap: { name: heyann-rewards-jwks, defaultMode: 0444 }
         # Database exports are written here; disk-backed so they don't count against memory.
         - name: temporary
           emptyDir: { sizeLimit: 128Mi }
@@ -140,6 +150,7 @@ spec:
   ports:
     - { name: ui, port: 8080, targetPort: ui }
     - { name: mcp, port: 8081, targetPort: mcp }
+    - { name: rewards, port: 8082, targetPort: rewards }
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -174,3 +185,9 @@ spec:
           podSelector: { matchLabels: { app.kubernetes.io/name: orbit-hub } }
       ports:
         - { protocol: TCP, port: 8081 }
+    # The Socrates pod, rewards intake only. The node gets no 8082.
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: socrates } }
+          podSelector: { matchLabels: { app: socrates } }
+      ports:
+        - { protocol: TCP, port: 8082 }

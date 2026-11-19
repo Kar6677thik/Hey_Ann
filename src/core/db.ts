@@ -210,6 +210,21 @@ const MIGRATIONS: string[] = [
   ALTER TABLE cards ADD COLUMN source TEXT;   -- JSON {app, id, url?, title?}
   CREATE INDEX cards_source ON cards(json_extract(source, '$.app'), json_extract(source, '$.id')) WHERE source IS NOT NULL;
   `,
+  /* 4: study rewards pushed by Socrates (docs/REWARDS.md §10). The ledger row (dedupe = event_id) is the payment;
+     this keeps what the daily study sub-cap needs: the event's own study day and its minutes after overlap voiding. */ `
+  CREATE TABLE study_events (
+    event_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,              -- study_minutes|mastery_up
+    day TEXT NOT NULL,               -- Socrates' study day, used as given
+    received_at INTEGER NOT NULL,
+    minutes REAL NOT NULL,           -- study minutes left after voiding overlap with focus and phone sessions
+    base INTEGER NOT NULL,           -- wallet minutes this event used of the day's study sub-cap
+    credited INTEGER NOT NULL,       -- what was actually paid (after the daily cap, debt and balance cap)
+    note TEXT,
+    payload TEXT NOT NULL
+  );
+  CREATE INDEX study_events_day ON study_events(day);
+  `,
 ];
 
 export function openDb(path = DEFAULT_DB_PATH): DB {

@@ -146,3 +146,7 @@ Cards take an optional `source`, which records where the card came from in anoth
 - **Socrates defaults:** cards with `app: "socrates"` get the tag `study`, and the project `Study` unless one is given.
 
 **Card addresses:** when `HEYANN_PUBLIC_ORIGIN` is set, MCP results carry each card's address, `{origin}/card/{id}` (the Sprawl/Slate convention). Clients copy it as-is and never build it.
+
+## Study rewards intake (Socrates, port 8082)
+
+`POST /internal/rewards` with `Content-Type: application/jose` and one signed event as a compact JWS. It answers 200 `{"status":"applied"|"duplicate"}`, 401 for a bad signature or claims, 422 for a bad event, and 503 for a temporary failure. Every other path returns 404. It runs on its own listener (`HEYANN_REWARDS_PORT`) that is never routed. The contract and pricing are in `docs/REWARDS.md` §10.

@@ -40,5 +40,5 @@ ENV NODE_ENV=production \
     HOME=/tmp
 # Numeric, so kubelet can verify runAsNonRoot.
 USER 1654:1654
-EXPOSE 8080 8081
+EXPOSE 8080 8081 8082
 CMD ["node", "--no-warnings", "src/server/index.ts"]
