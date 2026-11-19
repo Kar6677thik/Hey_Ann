@@ -15,6 +15,7 @@
     "start": "node --no-warnings src/server/start.ts",
     "serve": "node --no-warnings src/server/index.ts",
     "password": "node --no-warnings scripts/password.ts",
+    "reward-vector": "node --no-warnings scripts/reward-vector.ts",
     "mcp": "node --no-warnings src/mcp/stdio.ts",
     "seed": "node --no-warnings scripts/seed.ts",
     "typecheck": "tsc --noEmit && tsc -p web/tsconfig.json --noEmit",

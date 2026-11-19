@@ -8,7 +8,7 @@ import { errorMessage } from './mutations.ts';
 import { queryClient } from './queries.ts';
 
 export type Phase = 'off' | 'baseline' | 'active';
-export type LedgerSource = 'system' | 'web' | 'ann' | 'phone';
+export type LedgerSource = 'system' | 'web' | 'ann' | 'phone' | 'socrates';
 
 export interface Rules {
   version: number;
@@ -170,10 +170,12 @@ export const KIND_LABEL: Record<string, string> = {
   pause: 'Pause day',
   expire: 'Expired',
   wall: 'Walled apps',
+  study: 'Study',
+  mastery: 'Mastery',
 };
 export const kindLabel = (k: string) => KIND_LABEL[k] ?? capitalise(k.replace(/_/g, ' '));
 
-export const SOURCE_LABEL: Record<LedgerSource, string> = { ann: 'Ann', web: 'You', phone: 'Phone', system: 'Rules' };
+export const SOURCE_LABEL: Record<LedgerSource, string> = { ann: 'Ann', web: 'You', phone: 'Phone', system: 'Rules', socrates: 'Socrates' };
 
 /** Friendly names for common walled apps; anything else shows its package name. */
 export const APP_LABEL: Record<string, string> = {

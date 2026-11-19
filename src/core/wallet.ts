@@ -7,6 +7,12 @@ import { BoardError } from './board.ts';
 import type { Batch, Card } from './types.ts';
 import { addDays, daysBetween, endOfDay, localDay, startOfDay, startOfWeek, weekday } from './time.ts';
 
+/** A Socrates study event after schema validation (src/server/rewards.ts). */
+export type StudyEventIn = { event_id: string; day: string; occurred_at: number; baseline?: boolean } & (
+  | { kind: 'study_minutes'; minutes: number; intervals: [number, number][]; session_id: number; attempts_credited: number; pending: number; supplement?: boolean }
+  | { kind: 'mastery_up'; tag: { id: number; path: string; title: string }; threshold: number }
+);
+
 export interface Rules {
   version: number;
   /** Screen minutes per focused minute. */
@@ -22,6 +28,8 @@ export interface Rules {
   /** Focus minutes counted per session at most (a forgotten timer earns nothing extra). */
   session_cap_min: number;
   daily_earn_cap: number;
+  /** Of daily_earn_cap, at most this much from Socrates study minutes (per Socrates study day). */
+  study_day_cap: number;
   allowance: number;
   plan_deadline: string;
   missed_plan_penalty: number;
@@ -66,6 +74,7 @@ export const DEFAULT_RULES: Rules = {
   bonus_per_day: 3,
   session_cap_min: 90,
   daily_earn_cap: 60,
+  study_day_cap: 30,
   allowance: 10,
   plan_deadline: '11:00',
   missed_plan_penalty: 10,
@@ -104,7 +113,7 @@ export const DEFAULT_RULES: Rules = {
 /** Rule fields the owner may change (with a delay); numbers are bounded so a typo can't break the economy. */
 const BOUNDS: Partial<Record<keyof Rules, [number, number]>> = {
   rate: [0.05, 1], on_time_mult: [1, 2], bonus: [0, 20], bonus_min_focus: [5, 120], bonus_per_day: [0, 10], session_cap_min: [25, 240],
-  daily_earn_cap: [10, 240], allowance: [0, 60], missed_plan_penalty: [0, 60], missed_plan_focus_min: [0, 240], overdue_per_day: [0, 30],
+  daily_earn_cap: [10, 240], study_day_cap: [0, 120], allowance: [0, 60], missed_plan_penalty: [0, 60], missed_plan_focus_min: [0, 240], overdue_per_day: [0, 30],
   overdue_card_cap: [0, 120], snooze_penalty: [0, 30], emergency_cost: [5, 120], emergency_minutes: [5, 60], emergency_per_week: [0, 7],
   tamper_penalty: [0, 120], tamper_gap_min: [5, 240], penalty_day_cap: [0, 120], penalty_week_cap: [0, 500], balance_cap: [30, 600],
   expiry_days: [1, 30], debt_floor: [-300, 0], repay_mult: [1, 3], debt_pause_days: [1, 14], back_reward: [0, 5], back_per_day: [0, 20],
@@ -113,7 +122,7 @@ const BOUNDS: Partial<Record<keyof Rules, [number, number]>> = {
 };
 
 export type Phase = 'off' | 'baseline' | 'active';
-type Source = 'system' | 'web' | 'ann' | 'phone';
+type Source = 'system' | 'web' | 'ann' | 'phone' | 'socrates';
 
 interface State {
   rules: Rules;
@@ -129,7 +138,10 @@ export interface LedgerRow {
 
 const EARN_KINDS = ['earn', 'bonus', 'clawback'];
 const PENALTY_KINDS = ['forfeit', 'penalty'];
-const CREDIT_KINDS = ['earn', 'bonus', 'allowance', 'grant', 'pause', 'back'];
+const CREDIT_KINDS = ['earn', 'bonus', 'study', 'mastery', 'allowance', 'grant', 'pause', 'back'];
+/** Earnings: they share the daily cap and repay debt at repay_mult. */
+const EARNINGS = ['earn', 'bonus', 'study', 'mastery'];
+const EARNINGS_SQL = EARNINGS.map((k) => `'${k}'`).join(',');
 
 export class Wallet {
   private board: Board;
@@ -304,9 +316,9 @@ export class Wallet {
     const now = opts.now ?? Date.now();
     const r = this.rules(now);
     let a = amount;
-    if (kind === 'earn' || kind === 'bonus') {
+    if (EARNINGS.includes(kind)) {
       const { start } = this.dayBounds(now);
-      const earnedToday = this.sum("kind IN ('earn','bonus') AND amount > 0 AND at >= ?", start);
+      const earnedToday = this.sum(`kind IN (${EARNINGS_SQL}) AND amount > 0 AND at >= ?`, start);
       a = Math.min(a, Math.max(r.daily_earn_cap - earnedToday, 0));
       const bal = this.balance();
       if (bal < 0 && a > 0) {
@@ -318,6 +330,82 @@ export class Wallet {
     a = Math.min(Math.round(a), Math.max(r.balance_cap - this.balance(), 0));
     if (a <= 0) return 0;
     return this.insert(a, kind, reason, opts) ? a : 0;
+  }
+
+  /** Card bonuses and Socrates mastery awards share one daily limit (bonus_per_day). */
+  private bonusesToday(start: number): number {
+    return (this.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE kind IN ('bonus','mastery') AND amount > 0 AND at >= ?").get(start) as { n: number }).n;
+  }
+
+  /**
+   * Apply a study event Socrates pushed (signature already checked by the caller), exactly once per event_id.
+   * Every accepted event leaves a ledger row, even when it pays 0, so the dedupe is permanent and the owner sees why.
+   *
+   * study_minutes: minutes overlapping a focus timer or a phone session are voided (by the voided share of its
+   * intervals), then the day's study is priced as a whole: floor(rate x minutes) up to study_day_cap per Socrates day,
+   * minus what earlier events of that day already used. The daily earn cap, debt repayment and the balance cap then
+   * apply as for focus earnings.
+   * mastery_up: +bonus, within the shared bonus_per_day limit.
+   */
+  applyStudyEvent(e: StudyEventIn, now = Date.now()): { status: 'applied' | 'duplicate'; credited: number; note: string } {
+    if (this.db.prepare('SELECT 1 FROM ledger WHERE dedupe = ?').get(e.event_id)) return { status: 'duplicate', credited: 0, note: 'already applied' };
+    const r = this.rules(now);
+    let minutes = 0, base = 0, note = '';
+    if (e.kind === 'study_minutes') {
+      const total = e.intervals.reduce((n, [a, b]) => n + (b - a), 0);
+      const kept = total ? total - this.overlapMs(e.intervals, now) : 0;
+      minutes = total ? e.minutes * (kept / total) : 0;
+      if (kept < total) note = `${Math.round((total - kept) / 60000)} min overlapped focus or phone use`;
+      const day = this.db.prepare("SELECT COALESCE(SUM(minutes), 0) AS m, COALESCE(SUM(base), 0) AS b FROM study_events WHERE kind = 'study_minutes' AND day = ?").get(e.day) as { m: number; b: number };
+      const target = Math.min(r.study_day_cap, Math.floor((day.m + minutes) * r.rate + 1e-9));
+      base = Math.max(target - day.b, 0);
+      if (!base && day.b >= r.study_day_cap) note ||= `study limit (${r.study_day_cap}/day) reached`;
+    } else {
+      const { start } = this.dayBounds(now);
+      if (this.bonusesToday(start) < r.bonus_per_day) base = r.bonus;
+      else note = `bonus limit (${r.bonus_per_day}/day) reached`;
+    }
+    if (e.baseline) { base = 0; minutes = 0; note = 'reached before rewards started'; }
+    if (this.phase(now) === 'off') { base = 0; minutes = 0; note = 'wallet off'; }
+    const kind = e.kind === 'study_minutes' ? 'study' : 'mastery';
+    const what = e.kind === 'study_minutes'
+      ? `${Math.round(e.minutes * 10) / 10} min of study in Socrates (${e.day}${e.supplement ? ', late grading' : ''})`
+      : `Mastery ${e.threshold}% in ${e.tag.title}`;
+    let credited = 0;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      if (base > 0) credited = this.credit(base, kind, what, { source: 'socrates', dedupe: e.event_id, now });
+      if (!credited) {
+        if (base > 0) note ||= 'daily earn cap or balance cap reached';
+        this.insert(0, kind, `${what}: ${note || 'nothing to pay'}`, { source: 'socrates', dedupe: e.event_id, now });
+      }
+      this.db.prepare('INSERT INTO study_events(event_id, kind, day, received_at, minutes, base, credited, note, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(e.event_id, e.kind, e.day, now, minutes, base, credited, note || null, JSON.stringify(e));
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    return { status: 'applied', credited, note };
+  }
+
+  /** Milliseconds of these intervals covered by focus timers (logged or running) or phone sessions. */
+  private overlapMs(intervals: [number, number][], now: number): number {
+    const lo = Math.min(...intervals.map((i) => i[0])), hi = Math.max(...intervals.map((i) => i[1]));
+    const busy = [
+      ...(this.db.prepare('SELECT started_at AS a, ended_at AS b FROM focus_log WHERE ended_at > ? AND started_at < ?').all(lo, hi) as { a: number; b: number }[]),
+      ...(this.db.prepare('SELECT focus_started_at AS a, ? AS b FROM cards WHERE focus_started_at IS NOT NULL AND focus_started_at < ?').all(now, hi) as { a: number; b: number }[]),
+      ...(this.db.prepare('SELECT started_at AS a, COALESCE(stopped_at, ends_at) AS b FROM phone_sessions WHERE COALESCE(stopped_at, ends_at) > ? AND started_at < ?').all(lo, hi) as { a: number; b: number }[]),
+    ].sort((x, y) => x.a - y.a);
+    const merged: [number, number][] = [];
+    for (const { a, b } of busy) {
+      const last = merged[merged.length - 1];
+      if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+      else merged.push([a, b]);
+    }
+    let ms = 0;
+    for (const [s, t] of intervals) for (const [a, b] of merged) ms += Math.max(0, Math.min(t, b) - Math.max(s, a));
+    return ms;
   }
 
   /** Days in a row (ending yesterday) that closed in debt. */
@@ -398,8 +486,7 @@ export class Wallet {
       if (prior && prior.bonus > 0) bonus = prior.bonus;
       else {
         const { start } = this.dayBounds(now);
-        const today = (this.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE kind = 'bonus' AND amount > 0 AND at >= ?").get(start) as { n: number }).n;
-        if (today < r.bonus_per_day) bonus = r.bonus;
+        if (this.bonusesToday(start) < r.bonus_per_day) bonus = r.bonus;
       }
     }
     return { base, bonus, focus };
@@ -685,7 +772,7 @@ export class Wallet {
     return {
       phase: this.phase(now), started: s.started, baseline_until: s.baseline_until, balance: this.balance(),
       today: {
-        day: today, earned: kinds(['earn', 'bonus']), allowance: kinds(['allowance', 'pause']), penalties: kinds(PENALTY_KINDS),
+        day: today, earned: kinds(EARNINGS), allowance: kinds(['allowance', 'pause']), penalties: kinds(PENALTY_KINDS),
         spent: -kinds(['spend', 'emergency']), refunded: kinds(['refund']), ann: this.sum("kind IN ('grant','fine') AND source = 'ann' AND at >= ?", start),
         earn_cap: r.daily_earn_cap, paused: this.isPaused(today),
       },

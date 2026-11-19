@@ -79,6 +79,14 @@ kubectl -n heyann create configmap heyann-jwks --from-file=jwks.json
 
 Hey Ann refuses to start if the file has no P-256 key, or if it contains a private key.
 
+Socrates' public key for study rewards (from the Socrates deploy; 1 to 3 keys, each with a `kid`):
+
+```bash
+kubectl -n heyann create configmap heyann-rewards-jwks --from-file=jwks.json
+```
+
+Hey Ann re-reads it when the ConfigMap changes, so a key rotation needs no restart. Put the new key in next to the old one, then remove the old one once Socrates signs with the new key.
+
 ## 3. Apply
 
 `deploy/heyann.yaml` sets these, so check them first:
@@ -193,6 +201,7 @@ Build, import and apply with the new digest (steps 1 and 3). `Recreate` stops th
 | `HEYANN_CREDENTIAL_FILE` | Owner password verifier (Identity V3 format). |
 | `HEYANN_MCP_PORT`, `HEYANN_MCP_PUBLIC_ORIGIN`, `HEYANN_MCP_ALLOWED_ORIGINS` | The OAuth MCP listener. |
 | `HEYANN_OAUTH_ISSUER`, `HEYANN_OAUTH_RESOURCE`, `HEYANN_OAUTH_ALLOWED_SUBJECTS`, `HEYANN_OAUTH_JWKS_FILE` | Token checks. `HEYANN_OAUTH_ALLOWED_CLIENTS` can also limit which client ids are accepted. |
+| `HEYANN_REWARDS_PORT`, `HEYANN_REWARDS_JWKS_FILE` | The study-rewards intake (Socrates' signed pushes, `docs/REWARDS.md` §10). Set both or neither. |
 | `HEYANN_DATA` | Data directory (database and backups). |
 | `HEYANN_TIMEZONE` | Initial timezone for date phrases; Settings overrides it. |
 

@@ -37,6 +37,9 @@ export interface Config {
   /** Browser origins allowed to call /mcp (requests without Origin are always allowed). */
   mcpAllowedOrigins: string[];
   oauth: OAuthConfig | null;
+  /** Study-rewards intake listener (Socrates' signed pushes) and Socrates' public keys. Both or neither. */
+  rewardsPort: number | null;
+  rewardsJwksFile: string | null;
 }
 
 const list = (v: string | undefined) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -101,6 +104,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   for (const p of mcpTrustedProxies) if (!isIpOrCidr(p)) throw new Error(`HEYANN_MCP_TRUSTED_PROXY: "${p}" is not an IP address or CIDR`);
   if (env.HEYANN_MCP_TRUSTED_PROXY && mcpPort === null) throw new Error('HEYANN_MCP_TRUSTED_PROXY is only for the separate MCP listener (HEYANN_MCP_PORT).');
 
+  const rewardsPort = env.HEYANN_REWARDS_PORT ? Number(env.HEYANN_REWARDS_PORT) : null;
+  if (rewardsPort !== null && (!Number.isInteger(rewardsPort) || rewardsPort < 1 || rewardsPort > 65535)) throw new Error('HEYANN_REWARDS_PORT must be a port number.');
+  const rewardsJwksFile = env.HEYANN_REWARDS_JWKS_FILE || null;
+  if ((rewardsPort === null) !== (rewardsJwksFile === null)) throw new Error('Set HEYANN_REWARDS_PORT and HEYANN_REWARDS_JWKS_FILE together.');
+  if (rewardsPort !== null && (rewardsPort === uiPort || rewardsPort === mcpPort)) throw new Error('HEYANN_REWARDS_PORT must be its own port.');
+
   return {
     port: uiPort,
     host: env.HOST ?? '127.0.0.1',
@@ -114,6 +123,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mcpPublicOrigin,
     mcpAllowedOrigins,
     oauth,
+    rewardsPort,
+    rewardsJwksFile,
   };
 }
 
