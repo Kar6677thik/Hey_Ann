@@ -138,7 +138,7 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
   const cardFields = {
     notes: z.string().max(20000).optional().describe('Details, markdown'),
     priority: PRIORITY.optional().describe('P0 urgent, P1 high, P2 normal (default), P3 low'),
-    project: z.string().max(60).optional().describe('Project name; created if new. Reuse existing project names (see get_board).'),
+    project: z.string().max(60).optional().describe('Project name; created if new. Reuse existing project names (see `get_board`).'),
     tags: z.array(z.string().max(40)).max(10).optional(),
     estimate: z.string().optional().describe('Effort, e.g. "30m", "2h", "1h30m"'),
     checklist: z.array(z.string().max(500)).max(50).optional().describe('Sub-steps'),
@@ -159,7 +159,7 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
         ...cardFields,
         client_ref: z.string().max(100).optional().describe('Stable id for retries: the same client_ref never creates twice'),
         source: SOURCE.optional(),
-        reason: z.string().max(2000).optional().describe('Why this card exists (e.g. from Socrates get_study_tasks); becomes the notes when notes are not given'),
+        reason: z.string().max(2000).optional().describe('Why this card exists (e.g. from `socrates.get_study_tasks`); becomes the notes when notes are not given'),
         estimate_min: z.number().int().min(1).max(1440).optional().describe('Effort in minutes (alternative to estimate)'),
         session_url: z.string().url().optional().describe('A link that starts the work (e.g. a Socrates study session), exactly as the other tool returned it'),
         allow_duplicate: z.boolean().optional(),
@@ -353,7 +353,7 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
     });
 
   register('triage', 'read', 'Triage the board',
-    'Use this when the user feels overwhelmed, asks to clean up, or the board is messy. Lists overdue, stale, blocked and undated urgent cards and over-limit columns, each with a suggested action. Propose the changes; apply them with update_cards/archive_cards only after the user agrees.',
+    'Use this when the user feels overwhelmed, asks to clean up, or the board is messy. Lists overdue, stale, blocked and undated urgent cards and over-limit columns, each with a suggested action. Propose the changes; apply them with `update_cards`/`archive_cards` only after the user agrees.',
     {}, {},
     () => {
       const t = triage(board);
@@ -390,7 +390,7 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
   // ------------------------------------------------------------------ history & undo
 
   register('undo', 'write', 'Undo',
-    'Use this when the user says undo, revert, "that was wrong" or "put it back". Reverts the most recent Ann action as a whole (or a specific batch_id from history). Undo is itself undoable.',
+    'Use this when the user says undo, revert, "that was wrong" or "put it back". Reverts the most recent Ann action as a whole (or a specific batch_id from `history`). Undo is itself undoable.',
     {
       batch_id: z.string().optional().describe('From history; default: the most recent action by Ann'),
       utterance: UTTERANCE,
@@ -405,7 +405,7 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
     });
 
   register('history', 'read', 'Recent activity',
-    'Use this when the user asks what changed recently or what Ann did, or to find a batch_id to undo. Lists recent actions by Ann, the web app and the system.',
+    'Use this when the user asks what changed recently or what Ann did, or to find a batch_id to pass to `undo`. Lists recent actions by Ann, the web app and the system.',
     {
       limit: z.number().int().min(1).max(50).optional(),
       card: z.union([z.string(), z.number()]).optional().describe('Only actions touching this card'),
