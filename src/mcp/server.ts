@@ -62,7 +62,8 @@ export interface McpOptions {
 
 export function buildMcpServer(board: Board, opts: McpOptions = {}) {
   const server = new McpServer({ name: 'hey-ann', title: 'Hey Ann', version: '1.0.0' }, { instructions: SERVER_INSTRUCTIONS });
-  const client = () => prettyClient(server.server.getClientVersion()?.name ?? opts.client ?? 'unknown');
+  // Calls relayed by the Orbit Hub carry its client id in the token; label them by the Hub, not the model behind it.
+  const client = () => (opts.client === 'orbit-hub' ? 'Orbit Hub' : prettyClient(server.server.getClientVersion()?.name ?? opts.client ?? 'unknown'));
   const meta = (action: string, utterance?: string | null): BatchMeta => ({ actor: 'ann', client: client(), action, utterance: utterance ?? null });
   const allowed = (a: Access) => !opts.scopes || opts.scopes.has(SCOPES[a]);
 
@@ -683,6 +684,7 @@ export function prettyClient(name: string): string {
   if (n.includes('claude')) return 'Claude';
   if (n.includes('codex')) return 'Codex';
   if (n.includes('inspector')) return 'MCP Inspector';
+  if (n.includes('orbit-hub')) return 'Orbit Hub';
   return name.slice(0, 40) || 'AI';
 }
 

@@ -7,6 +7,8 @@
 // trusted proxy, and requires the owner password (remembered for 30 days per device). The local-token /mcp is gone; MCP is served only
 // on its own listener (HEYANN_MCP_PORT) with Orbit Identity OAuth, once that is configured.
 
+import { BlockList, isIP } from 'node:net';
+
 export interface OAuthConfig {
   issuer: string;
   /** The MCP URL clients enter; also the required token audience. */
@@ -26,6 +28,8 @@ export interface Config {
   /** Exact Host header values the UI listener accepts (localhost variants are always accepted). */
   allowedHosts: string[];
   trustedProxies: string[];
+  /** Peers whose X-Forwarded-Proto the MCP listener believes: IPs or CIDRs (in-cluster callers like the Orbit Hub). Defaults to trustedProxies. */
+  mcpTrustedProxies: string[];
   credentialFile: string | null;
   /** Separate MCP listener port (deployed: required for MCP). Null: MCP on the UI listener with the local token. */
   mcpPort: number | null;
@@ -90,9 +94,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const mcpAllowedOrigins = list(env.HEYANN_MCP_ALLOWED_ORIGINS).map((o) => httpsOrigin(o, 'HEYANN_MCP_ALLOWED_ORIGINS'));
 
   const trustedProxies = list(env.HEYANN_TRUSTED_PROXY);
-  for (const p of trustedProxies) if (!/^[0-9a-f.:]+$/i.test(p)) throw new Error(`HEYANN_TRUSTED_PROXY: "${p}" is not an IP address`);
+  for (const p of trustedProxies) if (!isIP(p)) throw new Error(`HEYANN_TRUSTED_PROXY: "${p}" is not an IP address`);
   if ((deployed || oauth) && trustedProxies.length === 0)
     throw new Error('Set HEYANN_TRUSTED_PROXY to the address of the HTTPS proxy (tailscale serve / cloudflared).');
+  const mcpTrustedProxies = env.HEYANN_MCP_TRUSTED_PROXY ? list(env.HEYANN_MCP_TRUSTED_PROXY) : trustedProxies;
+  for (const p of mcpTrustedProxies) if (!isIpOrCidr(p)) throw new Error(`HEYANN_MCP_TRUSTED_PROXY: "${p}" is not an IP address or CIDR`);
+  if (env.HEYANN_MCP_TRUSTED_PROXY && mcpPort === null) throw new Error('HEYANN_MCP_TRUSTED_PROXY is only for the separate MCP listener (HEYANN_MCP_PORT).');
 
   return {
     port: uiPort,
@@ -101,10 +108,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     publicOrigin,
     allowedHosts,
     trustedProxies,
+    mcpTrustedProxies,
     credentialFile,
     mcpPort,
     mcpPublicOrigin,
     mcpAllowedOrigins,
     oauth,
+  };
+}
+
+/** "10.42.0.1", "fd00::1", "10.42.0.0/16", "fd00::/64". */
+export function isIpOrCidr(v: string): boolean {
+  const [ip, bits, extra] = v.split('/');
+  const fam = isIP(ip);
+  if (!fam || extra !== undefined) return false;
+  if (bits === undefined) return true;
+  return /^\d{1,3}$/.test(bits) && Number(bits) <= (fam === 4 ? 32 : 128);
+}
+
+/** Matches a peer address (IPv4-mapped IPv6 included) against IPs and CIDRs. */
+export function addressMatcher(list: string[]): (ip: string) => boolean {
+  const bl = new BlockList();
+  for (const v of list) {
+    const [ip, bits] = v.split('/');
+    const type = isIP(ip) === 6 ? 'ipv6' : 'ipv4';
+    if (bits === undefined) bl.addAddress(ip, type);
+    else bl.addSubnet(ip, Number(bits), type);
+  }
+  return (ip) => {
+    const a = ip.replace(/^::ffff:/i, '');
+    const fam = isIP(a);
+    return !!fam && bl.check(a, fam === 6 ? 'ipv6' : 'ipv4');
   };
 }

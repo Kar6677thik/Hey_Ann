@@ -188,7 +188,8 @@ Build, import and apply with the new digest (steps 1 and 3). `Recreate` stops th
 |---|---|
 | `HEYANN_PUBLIC_ORIGIN` | UI origin. Turns on deployed mode: login required, HTTPS required, no local-token MCP. |
 | `HEYANN_ALLOWED_HOSTS` | Extra exact Host values for the UI (comma-separated). localhost is always allowed (probes). |
-| `HEYANN_TRUSTED_PROXY` | Addresses whose `X-Forwarded-Proto` is believed. |
+| `HEYANN_TRUSTED_PROXY` | Exact IPs whose `X-Forwarded-Proto` the UI listener believes (and the MCP listener, unless the next setting is given). |
+| `HEYANN_MCP_TRUSTED_PROXY` | IPs or CIDRs whose `X-Forwarded-Proto` the MCP listener believes. On Megatron: the node plus the pod network, for the Orbit Hub; the NetworkPolicy admits only the Hub pod from that network. |
 | `HEYANN_CREDENTIAL_FILE` | Owner password verifier (Identity V3 format). |
 | `HEYANN_MCP_PORT`, `HEYANN_MCP_PUBLIC_ORIGIN`, `HEYANN_MCP_ALLOWED_ORIGINS` | The OAuth MCP listener. |
 | `HEYANN_OAUTH_ISSUER`, `HEYANN_OAUTH_RESOURCE`, `HEYANN_OAUTH_ALLOWED_SUBJECTS`, `HEYANN_OAUTH_JWKS_FILE` | Token checks. `HEYANN_OAUTH_ALLOWED_CLIENTS` can also limit which client ids are accepted. |

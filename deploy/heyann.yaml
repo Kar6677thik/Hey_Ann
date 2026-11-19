@@ -1,7 +1,8 @@
 # Hey Ann on Megatron (k3s). Runbook: docs/DEPLOY.md.
 #   :8080 ui   UI + API + live events + owner login (password, remembered per device). tailscale serve svc:heyann -> https://heyann.tailf67d61.ts.net (tailnet only)
 #   :8081 mcp  /mcp (Orbit Identity OAuth) + /.well-known/oauth-protected-resource only. cloudflared ->
-#              https://heyann-mcp.karthiksurkanti.in (path-filtered to exactly those paths)
+#              https://heyann-mcp.karthiksurkanti.in (path-filtered to exactly those paths); the Orbit Hub (namespace hub)
+#              also calls it in-cluster on the ClusterIP with the same tokens.
 # Value to replace before applying:
 #   IMAGE_DIGEST    the digest deploy/import-image.sh printed
 # Provisioned separately, never in this file:
@@ -85,6 +86,9 @@ spec:
             - { name: HEYANN_CREDENTIAL_FILE, value: /run/heyann/owner/verifier }
             # MCP: its own listener, Orbit Identity access tokens only (RFC 9068, ES256), owner subject only.
             - { name: HEYANN_MCP_PORT, value: "8081" }
+            # MCP listener only: the node (cloudflared) plus the pod network, so the Orbit Hub's X-Forwarded-Proto counts.
+            # Safe only because the NetworkPolicy below admits nothing else from the pod network to 8081.
+            - { name: HEYANN_MCP_TRUSTED_PROXY, value: "10.42.0.1,10.42.0.0/16" }
             - { name: HEYANN_MCP_PUBLIC_ORIGIN, value: "https://heyann-mcp.karthiksurkanti.in" }
             - { name: HEYANN_MCP_ALLOWED_ORIGINS, value: "https://claude.ai" }
             - { name: HEYANN_OAUTH_ISSUER, value: "https://auth.karthiksurkanti.in/" }
@@ -163,4 +167,10 @@ spec:
         - ipBlock: { cidr: 10.42.0.1/32 }
       ports:
         - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 8081 }
+    # The Orbit Hub pod, MCP listener only.
+    - from:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: hub } }
+          podSelector: { matchLabels: { app.kubernetes.io/name: orbit-hub } }
+      ports:
         - { protocol: TCP, port: 8081 }
