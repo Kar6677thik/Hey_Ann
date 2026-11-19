@@ -181,6 +181,51 @@ test('HTTP MCP listener: OAuth token checks (audience, subject, scope)', async (
   assert.equal(ui.status, 404, 'the MCP listener never serves the API');
 });
 
+test('HTTP MCP listener: the Orbit Hub reaches it from the pod network; the UI listener still trusts only its proxy', async () => {
+  const board = new Board(':memory:');
+  const { publicKey, privateKey } = await generateKeyPair('ES256');
+  const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', use: 'sig', alg: 'ES256' };
+  const env = {
+    HEYANN_PUBLIC_ORIGIN: 'https://heyann.example.ts.net', HEYANN_CREDENTIAL_FILE: '/dev/null', HEYANN_TRUSTED_PROXY: '10.42.0.1',
+    HEYANN_MCP_TRUSTED_PROXY: '10.42.0.1,10.42.0.0/16',
+    HEYANN_MCP_PORT: '8081', HEYANN_OAUTH_ISSUER: 'https://auth.example/', HEYANN_OAUTH_RESOURCE: 'https://ann-mcp.example/mcp',
+    HEYANN_OAUTH_ALLOWED_SUBJECTS: 'owner-1', HEYANN_OAUTH_JWKS_FILE: 'unused', HEYANN_MCP_PUBLIC_ORIGIN: 'https://ann-mcp.example',
+  };
+  const cfg = loadConfig(env);
+  assert.deepEqual(cfg.trustedProxies, ['10.42.0.1']);
+  const verifier = await makeVerifier('correct horse battery staple', 100_000);
+  const { ui, mcp: app } = createServers(board, cfg, { owner: new Owner({ verifier, board }), verifyToken: tokenVerifier(cfg.oauth!, { keys: [jwk as any] }) });
+  const token = await new SignJWT({ scope: 'heyann.read heyann.write', client_id: 'orbit-hub', act: { sub: 'orbit-hub' } })
+    .setProtectedHeader({ alg: 'ES256', typ: 'at+jwt', kid: 'k1' }).setIssuer('https://auth.example/').setAudience('https://ann-mcp.example/mcp').setSubject('owner-1')
+    .setIssuedAt().setExpirationTime('5m').sign(privateKey);
+  const headers = {
+    host: 'ann-mcp.example', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'ann-mcp.example', 'user-agent': 'orbit-hub/1.0',
+    'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}`,
+  };
+  const rpc = (method: string, params: unknown) => JSON.stringify({ jsonrpc: '2.0', id: 1, method, params });
+  const send = (from: string, body = rpc('tools/list', {})) => app!.fetch(new Request('https://ann-mcp.example/mcp', { method: 'POST', headers, body }), { remoteAddress: from });
+
+  assert.equal((await send('10.42.3.17')).status, 200, 'Hub pod on the pod network');
+  assert.equal((await send('::ffff:10.42.3.17')).status, 200, 'IPv4-mapped peer');
+  const outside = await send('10.43.0.5');
+  assert.equal(outside.status, 403);
+  assert.deepEqual(await outside.json(), { error: 'HTTPS is required.' });
+  assert.equal((await send('192.168.0.8')).status, 403);
+
+  // Writes through the Hub are labelled "Orbit Hub" in the activity log.
+  const add = await send('10.42.3.17', rpc('tools/call', { name: 'add_cards', arguments: { cards: [{ title: 'Via the hub' }] } }));
+  assert.equal(add.status, 200);
+  assert.equal((board.db.prepare('SELECT client FROM batches ORDER BY id DESC LIMIT 1').get() as { client: string }).client, 'Orbit Hub');
+
+  // The UI listener still believes X-Forwarded-Proto from the node address only.
+  const uiReq = (from: string) => ui.fetch(new Request('https://heyann.example.ts.net/api/session', { headers: { host: 'heyann.example.ts.net', 'x-forwarded-proto': 'https' } }), { remoteAddress: from });
+  assert.equal((await uiReq('10.42.3.17')).status, 403);
+  assert.notEqual((await uiReq('10.42.0.1')).status, 403);
+
+  assert.throws(() => loadConfig({ ...env, HEYANN_MCP_TRUSTED_PROXY: '10.42.0.0/33' }), /not an IP address or CIDR/);
+  assert.throws(() => loadConfig({ ...env, HEYANN_TRUSTED_PROXY: '10.42.0.0/16' }), /not an IP address/);
+});
+
 test('MCP: Socrates study tasks pass through add_cards; results carry openable card urls', async () => {
   process.env.HEYANN_PUBLIC_ORIGIN = 'https://heyann.example.ts.net';
   const board = new Board(':memory:');

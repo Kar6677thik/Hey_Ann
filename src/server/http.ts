@@ -24,7 +24,7 @@ import { exportJson, importJson } from '../core/transfer.ts';
 import { buildMcpServer, prettyClient, SERVER_INSTRUCTIONS } from '../mcp/server.ts';
 import { addDays, isDay } from '../core/time.ts';
 import { getWallet } from '../core/wallet.ts';
-import type { Config } from './config.ts';
+import { addressMatcher, type Config } from './config.ts';
 import { SESSION_COOKIE, REMEMBER_IDLE_MS, type Owner } from './owner.ts';
 import { challenge, resourceMetadata, type TokenCheck } from './oauth.ts';
 
@@ -47,8 +47,8 @@ function peer(c: Context): string {
 }
 
 /** HTTPS as seen by the client: X-Forwarded-Proto counts only from a trusted proxy. */
-function viaHttps(c: Context, cfg: Config): boolean {
-  if (!cfg.trustedProxies.includes(peer(c))) return false;
+function viaHttps(c: Context, trusted: (ip: string) => boolean): boolean {
+  if (!trusted(peer(c))) return false;
   return (c.req.header('x-forwarded-proto') ?? '').split(',')[0].trim().toLowerCase() === 'https';
 }
 
@@ -99,6 +99,7 @@ export function createServers(board: Board, cfg: Config, deps: Deps): { ui: Hono
 function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   const { owner } = deps;
   const localMcp = !cfg.deployed && !cfg.oauth;
+  const uiTrusted = addressMatcher(cfg.trustedProxies);
   const uiOrigins = new Set([...(cfg.publicOrigin ? [cfg.publicOrigin] : []), ...(cfg.deployed ? [] : [`http://localhost:${cfg.port}`, `http://127.0.0.1:${cfg.port}`, 'http://localhost:5173', 'http://127.0.0.1:5173'])]);
   const root = new Hono();
 
@@ -112,7 +113,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   // Exact Host only (DNS rebinding, stray tunnels), then HTTPS when deployed.
   root.use('*', async (c, next) => {
     if (!hostAllowed(c.req.header('host'), cfg.allowedHosts)) return c.json({ error: 'Unknown host.' }, 403);
-    if (cfg.deployed && !viaHttps(c, cfg)) return c.json({ error: 'HTTPS is required.' }, 403);
+    if (cfg.deployed && !viaHttps(c, uiTrusted)) return c.json({ error: 'HTTPS is required.' }, 403);
     await next();
   });
 
@@ -561,6 +562,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
 function mcpServer(board: Board, cfg: Config, verify: (token: string | undefined) => Promise<TokenCheck>): Hono {
   const oauth = cfg.oauth!;
   const origin = cfg.mcpPublicOrigin!;
+  const mcpTrusted = addressMatcher(cfg.mcpTrustedProxies);
   const hosts = [new URL(origin).host];
   const browserOrigins = new Set([origin, ...cfg.mcpAllowedOrigins]);
   const root = new Hono();
@@ -585,7 +587,7 @@ function mcpServer(board: Board, cfg: Config, verify: (token: string | undefined
   health(root, board);
   root.use('*', async (c, next) => {
     if (!hostAllowed(c.req.header('host'), hosts)) return c.json({ error: 'Unknown host.' }, 403);
-    if (!viaHttps(c, cfg)) return c.json({ error: 'HTTPS is required.' }, 403);
+    if (!viaHttps(c, mcpTrusted)) return c.json({ error: 'HTTPS is required.' }, 403);
     const o = c.req.header('origin');
     if (o !== undefined && !browserOrigins.has(o)) return c.json({ error: 'The request origin is not allowed.' }, 403);
     await next();

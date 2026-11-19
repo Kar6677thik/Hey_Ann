@@ -8,6 +8,7 @@ export function clientLabel(client: string | null | undefined): string {
   if (c.includes('claude') || c.includes('anthropic')) return 'Claude';
   if (c.includes('openai') || c.includes('chatgpt') || c.includes('gpt')) return 'ChatGPT';
   if (c.includes('cursor')) return 'Cursor';
+  if (c.includes('orbit-hub') || c === 'orbit hub') return 'Orbit Hub';
   return client.replace(/[-_]+/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
