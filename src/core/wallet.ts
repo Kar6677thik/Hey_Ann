@@ -79,7 +79,7 @@ export const DEFAULT_RULES: Rules = {
   bonus: 3,
   bonus_min_focus: 25,
   bonus_per_day: 3,
-  session_cap_min: 90,
+  session_cap_min: 150,
   daily_earn_cap: 60,
   study_day_cap: 30,
   allowance: 10,
@@ -143,10 +143,12 @@ interface State {
   last_closed: string | null;
   /** First day the tab (unpaid use) is charged: the day after the feature first ran. */
   tab_from?: string;
+  /** One-time backpay done (earnings moved to the day of focus, session cap 90 -> 150; 26 Nov 2026). */
+  backpay_v1?: boolean;
 }
 
 export interface LedgerRow {
-  id: number; at: number; amount: number; kind: string; reason: string; card_id: number | null; source: Source; rule_version: number; dedupe: string | null;
+  id: number; at: number; amount: number; kind: string; reason: string; card_id: number | null; source: Source; rule_version: number; dedupe: string | null; earn_day?: string | null;
 }
 
 const EARN_KINDS = ['earn', 'bonus', 'clawback'];
@@ -305,11 +307,11 @@ export class Wallet {
     return (this.db.prepare(`SELECT COALESCE(SUM(amount), 0) AS s FROM ledger WHERE ${where}`).get(...params) as { s: number }).s;
   }
 
-  private insert(amount: number, kind: string, reason: string, opts: { card?: number | null; source?: Source; dedupe?: string; now?: number } = {}): LedgerRow | null {
+  private insert(amount: number, kind: string, reason: string, opts: { card?: number | null; source?: Source; dedupe?: string; now?: number; earnDay?: string } = {}): LedgerRow | null {
     if (opts.dedupe && this.db.prepare('SELECT 1 FROM ledger WHERE dedupe = ?').get(opts.dedupe)) return null;
     const at = opts.now ?? Date.now();
-    const r = this.db.prepare('INSERT INTO ledger(at, amount, kind, reason, card_id, source, rule_version, dedupe) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(at, Math.round(amount), kind, reason.slice(0, 300), opts.card ?? null, opts.source ?? 'system', this.rules(at).version, opts.dedupe ?? null);
+    const r = this.db.prepare('INSERT INTO ledger(at, amount, kind, reason, card_id, source, rule_version, dedupe, earn_day) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(at, Math.round(amount), kind, reason.slice(0, 300), opts.card ?? null, opts.source ?? 'system', this.rules(at).version, opts.dedupe ?? null, opts.earnDay ?? null);
     const row = this.db.prepare('SELECT * FROM ledger WHERE id = ?').get(Number(r.lastInsertRowid)) as unknown as LedgerRow;
     queueMicrotask(() => this.board.events.emit('wallet', { type: 'wallet', entry: row, balance: this.balance() }));
     return row;
@@ -324,15 +326,15 @@ export class Wallet {
    * Add screen minutes. Earnings (earn/bonus) count toward the daily cap and repay debt at repay_mult.
    * Nothing lifts the balance above balance_cap. Returns what was actually credited.
    */
-  private credit(amount: number, kind: string, reason: string, opts: { card?: number | null; source?: Source; dedupe?: string; now?: number } = {}): number {
+  private credit(amount: number, kind: string, reason: string, opts: { card?: number | null; source?: Source; dedupe?: string; now?: number; earnDay?: string } = {}): number {
     if (amount <= 0) return 0;
     const now = opts.now ?? Date.now();
     const r = this.rules(now);
     let a = amount;
     if (EARNINGS.includes(kind)) {
-      const { start } = this.dayBounds(now);
-      const earnedToday = this.sum(`kind IN (${EARNINGS_SQL}) AND amount > 0 AND at >= ?`, start);
-      a = Math.min(a, Math.max(r.daily_earn_cap - earnedToday, 0));
+      // The daily cap is per earning day: the day the focus happened (opts.earnDay), else today.
+      opts = { ...opts, earnDay: opts.earnDay ?? localDay(now, this.tz) };
+      a = Math.min(a, Math.max(r.daily_earn_cap - this.earnedOn(opts.earnDay!), 0));
       const bal = this.balance();
       if (bal < 0 && a > 0) {
         // Debt is repaid faster: each earned minute counts repay_mult until the debt is cleared.
@@ -499,18 +501,81 @@ export class Wallet {
 
   /** Focus minutes on a card that count: per-session cap, minus any overlap with phone sessions. */
   focusMinutes(cardId: number): number {
+    let total = 0;
+    for (const m of this.focusByDay(cardId).values()) total += m;
+    return total;
+  }
+
+  /** Counted focus minutes per local day (the day each session started): session cap and phone overlap applied. */
+  focusByDay(cardId: number): Map<string, number> {
     const r = this.rules();
-    const logs = this.db.prepare('SELECT started_at, ended_at, minutes FROM focus_log WHERE card_id = ?').all(cardId) as { started_at: number; ended_at: number; minutes: number }[];
-    if (!logs.length) return 0;
+    const out = new Map<string, number>();
+    const logs = this.db.prepare('SELECT started_at, ended_at, minutes FROM focus_log WHERE card_id = ? ORDER BY started_at').all(cardId) as { started_at: number; ended_at: number; minutes: number }[];
+    if (!logs.length) return out;
     const lo = Math.min(...logs.map((l) => l.started_at)), hi = Math.max(...logs.map((l) => l.ended_at));
     const phone = this.db.prepare('SELECT started_at, MIN(ends_at, COALESCE(stopped_at, ends_at)) AS e FROM phone_sessions WHERE started_at < ? AND ends_at > ?').all(hi, lo) as { started_at: number; e: number }[];
-    let total = 0;
     for (const l of logs) {
       let overlap = 0;
       for (const p of phone) overlap += Math.max(0, Math.min(l.ended_at, p.e) - Math.max(l.started_at, p.started_at));
-      total += Math.max(0, Math.min(l.minutes, r.session_cap_min) - Math.round(overlap / 60000));
+      const m = Math.max(0, Math.min(l.minutes, r.session_cap_min) - Math.round(overlap / 60000));
+      const d = localDay(l.started_at, this.tz);
+      out.set(d, (out.get(d) ?? 0) + m);
     }
-    return total;
+    return out;
+  }
+
+  /** Earnings that count toward a day's cap: rows earned for that day (older rows: by the day they were posted). */
+  private earnedOn(day: string): number {
+    return this.sum(`kind IN (${EARNINGS_SQL}) AND amount > 0 AND (earn_day = ? OR (earn_day IS NULL AND at >= ? AND at <= ?))`, day, startOfDay(day, this.tz), endOfDay(day, this.tz));
+  }
+
+  /**
+   * Pay a card's focus earnings onto the days the focus happened, so each day's cap applies to that day's work
+   * (a week of study isn't squeezed through the cap of the day the card was finished). The card's base is split
+   * by each day's counted minutes; what a day already paid for this card is subtracted; oldest day first.
+   */
+  private payBase(cardId: number, base: number, amount: number, reason: string, now: number): number {
+    const byDay = [...this.focusByDay(cardId).entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const total = byDay.reduce((n, [, m]) => n + m, 0);
+    if (!total) return this.credit(amount, 'earn', reason, { card: cardId, now });
+    const gross = this.sum("card_id = ? AND kind = 'earn' AND amount > 0", cardId);
+    const net = this.sum("card_id = ? AND kind IN ('earn','clawback')", cardId);
+    const kept = gross > 0 ? Math.min(Math.max(net / gross, 0), 1) : 0; // clawed-back earnings no longer count as paid
+    let left = amount, paid = 0;
+    for (const [i, [day, m]] of byDay.entries()) {
+      if (left <= 0) break;
+      const already = kept * this.sum("card_id = ? AND kind = 'earn' AND amount > 0 AND (earn_day = ? OR (earn_day IS NULL AND at >= ? AND at <= ?))", cardId, day, startOfDay(day, this.tz), endOfDay(day, this.tz));
+      const room = i === byDay.length - 1 ? left : Math.min(left, Math.max(Math.ceil(base * (m / total) - already), 0));
+      if (room <= 0) continue;
+      left -= room;
+      paid += this.credit(room, 'earn', `${reason} (focus on ${day})`, { card: cardId, now, earnDay: day });
+    }
+    return paid;
+  }
+
+  /**
+   * One-time fix (26 Nov 2026, approved by the owner): earnings used to count toward the cap of the day a card was
+   * finished, which swallowed multi-day study. Raise the session cap to 150 and pay each done card what the per-day
+   * rule would have paid, within today's balance cap.
+   */
+  private backpay(now: number) {
+    const s = this.state();
+    if (s.backpay_v1) return;
+    s.rules = { ...DEFAULT_RULES, ...s.rules, session_cap_min: Math.max(s.rules.session_cap_min ?? 0, 150) };
+    if (s.pending) s.pending.rules = { ...s.pending.rules, session_cap_min: Math.max(s.pending.rules.session_cap_min ?? 0, 150) };
+    s.backpay_v1 = true;
+    this.save(s);
+    const cards = this.db.prepare(`SELECT c.id FROM cards c JOIN columns col ON col.id = c.column_id WHERE col.kind = 'done' AND c.archived_at IS NULL AND c.credit_pending = 0 ORDER BY c.completed_at`).all() as { id: number }[];
+    for (const { id } of cards) {
+      const card = this.board.card(id);
+      if (!card) continue;
+      const exp = this.expected(card, now);
+      const net = this.sum("card_id = ? AND kind IN ('earn','clawback')", id);
+      const missing = exp.base - net;
+      if (missing > 0) this.payBase(id, exp.base, missing, `Backpay: "${card.title}"`, now);
+      const acc = this.db.prepare('SELECT bonus FROM card_credit WHERE card_id = ?').get(id) as { bonus: number } | undefined;
+      this.db.prepare('INSERT INTO card_credit(card_id, base, bonus) VALUES (?, ?, ?) ON CONFLICT(card_id) DO UPDATE SET base = excluded.base').run(id, exp.base, acc?.bonus ?? exp.bonus);
+    }
   }
 
   /** When the card's current due date was set (the batch that last changed it, else creation). */
@@ -556,7 +621,7 @@ export class Wallet {
     const title = card ? `"${card.title}"` : `#${cardId}`;
     const paid = this.sum('card_id = ? AND kind IN (\'earn\',\'bonus\',\'clawback\')', cardId);
     const dBase = exp.base - acc.base, dBonus = exp.bonus - acc.bonus;
-    if (dBase > 0) this.credit(dBase, 'earn', `${exp.focus} focus min on ${title}`, { card: cardId, now });
+    if (dBase > 0) this.payBase(cardId, exp.base, dBase, `${exp.focus} focus min on ${title}`, now);
     if (dBonus > 0) this.credit(dBonus, 'bonus', `Finished ${title}`, { card: cardId, now });
     const down = -(Math.min(dBase, 0) + Math.min(dBonus, 0));
     if (down > 0) {
@@ -601,6 +666,7 @@ export class Wallet {
   /** Idempotent: post today's allowance and the no-plan forfeit, and close every finished day. Call often. */
   tick(now = Date.now()) {
     if (this.phase(now) === 'off') return;
+    if (!this.state().backpay_v1) this.backpay(now);
     const s = this.state();
     const r = this.rules(now);
     const today = localDay(now, this.tz);

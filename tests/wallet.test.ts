@@ -91,10 +91,50 @@ test('priority is locked at first focus; on-time needs a due date set well in ad
 test('daily earning cap', () => {
   const { b, w } = setup();
   const cards = addCards(b, [{ title: 'A' }, { title: 'B' }], web).created;
-  // Four 60-minute sessions each (a single long session would be cut at the 90-minute session cap).
-  for (const c of cards) for (let i = 0; i < 4; i++) focus(b, c.id, 60, Date.now() - i * 3600_000);
+  // Four 60-minute sessions each, all on today (noon-anchored so the test never straddles midnight).
+  const noon = startOfDay(localDay(Date.now(), TZ), TZ) + 12 * 3600_000;
+  for (const c of cards) for (let i = 0; i < 4; i++) focus(b, c.id, 60, noon - i * 3600_000);
   updateCards(b, cards.map((c) => ({ card: c.id, move_to: 'done' })), web);
   assert.equal(w.balance(), 10 + 60);
+});
+
+test('earnings count toward the cap of the day the focus happened, not the day the card is done', () => {
+  const { b, w } = setup();
+  const today = localDay(Date.now(), TZ);
+  const at = (d: string) => startOfDay(d, TZ) + 14 * 3600_000;
+  const [c] = addCards(b, [{ title: 'Exam prep', priority: 'P2' as any }], web).created;
+  for (const d of [addDays(today, -2), addDays(today, -1), today]) focus(b, c.id, 100, at(d));
+  // The day before yesterday is untouched; yesterday already earned 50 elsewhere (room 10).
+  b.db.prepare("INSERT INTO ledger(at, amount, kind, reason, source, rule_version, earn_day) VALUES (?, 50, 'earn', 'other work', 'system', 1, ?)").run(at(addDays(today, -1)), addDays(today, -1));
+  const before = w.balance();
+  updateCards(b, [{ card: c.id, move_to: 'done' }], web);
+  // 300 min x 0.25 = 75: 25 a day. Yesterday only had room for 10; the other two days pay in full. Plus the bonus.
+  assert.equal(w.balance() - before, 25 + 10 + 25 + 3);
+  const rows = w.ledger({ limit: 10 }).filter((r) => r.card_id === c.id && r.kind === 'earn');
+  assert.deepEqual(rows.map((r) => r.earn_day).sort(), [addDays(today, -2), addDays(today, -1), today]);
+});
+
+test('one-time backpay: old completion-day caps are paid back per focus day, session cap raised to 150', () => {
+  const { b, w } = setup();
+  const now = Date.now();
+  const today = localDay(now, TZ);
+  const at = (d: string) => startOfDay(d, TZ) + 14 * 3600_000;
+  const [c] = addCards(b, [{ title: 'Language Modeling', priority: 'P2' as any }], web).created;
+  updateCards(b, [{ card: c.id, move_to: 'done' }], web);
+  // What the old rules left behind: two 120-min sessions (cut to 90 each), paid only 20 of 45 on the day it was done.
+  focus(b, c.id, 120, at(addDays(today, -1)));
+  focus(b, c.id, 120, at(today));
+  b.db.prepare("INSERT INTO ledger(at, amount, kind, reason, card_id, source, rule_version) VALUES (?, 20, 'earn', 'old', ?, 'system', 1)").run(now, c.id);
+  b.db.prepare('INSERT INTO card_credit(card_id, base, bonus) VALUES (?, 45, 0) ON CONFLICT(card_id) DO UPDATE SET base = 45').run(c.id);
+  const st = b.meta<any>('wallet', null);
+  b.setMeta('wallet', { ...st, backpay_v1: false, rules: { ...st.rules, session_cap_min: 90 } });
+  const before = w.balance();
+  w.tick(now);
+  // Now 240 min x 0.25 = 60 is owed; 20 was paid: 40 back (30 for yesterday, 10 more for today).
+  assert.equal(w.balance() - before, 40);
+  assert.equal(w.rules().session_cap_min, 150);
+  w.tick(now + 60_000);
+  assert.equal(w.balance() - before, 40, 'only once');
 });
 
 test('focus overlapping a phone session is voided', () => {

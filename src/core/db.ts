@@ -228,6 +228,10 @@ const MIGRATIONS: string[] = [
   /* 5: when each phone last sent a usage report (the silence rule watches reports, not just any contact) */ `
   ALTER TABLE devices ADD COLUMN last_usage INTEGER;
   `,
+  /* 6: the day an earning counts toward the daily cap: the day the focus happened, not the day the card was done.
+     NULL (older rows): the local day of \`at\`. */ `
+  ALTER TABLE ledger ADD COLUMN earn_day TEXT;
+  `,
 ];
 
 export function openDb(path = DEFAULT_DB_PATH): DB {
