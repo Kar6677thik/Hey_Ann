@@ -37,8 +37,10 @@ earned = round(focus_min × 0.25 × P × T)  + bonus
   P (priority locked when the first focus starts):  P0 1.5 · P1 1.25 · P2 1.0 · P3 0.75
   T: 1.2 if finished on/before a due date that was set ≥48h earlier, else 1.0
   bonus: +3 if the card has ≥25 focus min (max 3 bonuses/day)
-cap: 60 SM per day
+cap: 60 SM per day, counted on the day the focus happened (not the day the card is done)
 ```
+
+**Multi-day cards (26 Nov 2026):** a card's earnings are split across the days you focused on it, by each day's minutes, and each day's 60 cap applies to that day's work. A week of exam prep is no longer squeezed through the cap of the day you finish it. Earnings that the old completion-day cap swallowed were paid back once (within the 180 balance cap).
 
 **Daily allowance:** each morning **+10 SM**, framed as yours to lose: it is forfeited if you miss your plan (§5).
 
@@ -52,7 +54,7 @@ cap: 60 SM per day
 |---|---|
 | Split a task into many cards | Credit follows minutes, not cards. Bonuses are capped at 3/day and need ≥25 focus min |
 | Create a card and complete it instantly | It earns 0, because there are no focus minutes |
-| Leave the focus timer running while on the phone | Focus minutes that **overlap a phone spend session are voided**. A single focus session counts 90 minutes at most |
+| Leave the focus timer running while on the phone | Focus minutes that **overlap a phone spend session are voided**. A single focus session counts 150 minutes at most (90 until 26 Nov 2026) |
 | Log time manually or backdate | Manual time logs earn 0. Focus timestamps are set by the server |
 | Raise priority just before finishing | Priority is locked when the first focus session starts |
 | Move a due date to fake "on time" | T counts only a due date that was set ≥48h before completion |
