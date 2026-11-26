@@ -136,7 +136,7 @@ class BlockActivity : Activity() {
         when {
             error != null -> {
                 status.text = if ((error as? ApiError)?.status ?: 0 == 0)
-                    "Can't reach Hey Ann right now, so nothing new can be bought. Calls, messages and your other apps work as usual."
+                    "Can't reach Hey Ann. Is Tailscale on? Opening a walled app needs it; calls, messages and your other apps work as usual."
                 else error.message
                 status.setTextColor(Tone.Warning.ink); status.background = rounded(Tone.Warning.bg, status.dp(10))
                 status.show(true)
@@ -149,8 +149,10 @@ class BlockActivity : Activity() {
             else -> status.show(false)
         }
         val hold = Policy.holdMinutes(s)
+        val offline = error != null && ((error as? ApiError)?.status ?: 0) == 0
         openBtn.text = when {
             busy -> "Opening…"
+            offline && left <= 0 -> "Turn on Tailscale, then tap again"
             left > 0 -> "Open $appName"
             hold < 1 -> "No minutes to spend"
             else -> "Open $appName · pay as you go"
