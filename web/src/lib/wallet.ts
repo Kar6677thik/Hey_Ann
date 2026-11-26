@@ -170,6 +170,7 @@ export const KIND_LABEL: Record<string, string> = {
   pause: 'Pause day',
   expire: 'Expired',
   wall: 'Walled apps',
+  tab: 'Unpaid use',
   study: 'Study',
   mastery: 'Mastery',
 };

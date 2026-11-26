@@ -225,6 +225,9 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX study_events_day ON study_events(day);
   `,
+  /* 5: when each phone last sent a usage report (the silence rule watches reports, not just any contact) */ `
+  ALTER TABLE devices ADD COLUMN last_usage INTEGER;
+  `,
 ];
 
 export function openDb(path = DEFAULT_DB_PATH): DB {

@@ -174,10 +174,10 @@ class MainActivity : Activity() {
             card(top = 12) {
                 text("Turning it off", T.Heading)
                 text(
-                    "Pause above for a break. To stop completely, switch off Settings → Accessibility → Hey Ann wall, or uninstall the app. Nothing is blocked while it's off.",
+                    "Pause above when you need an app with people or in an emergency: nothing is blocked, and every minute in walled apps is billed to your wallet from the usage report. To stop completely, switch off Settings → Accessibility → Hey Ann wall, or uninstall the app.",
                     T.Small, top = 6,
                 )
-                text("In the active phase, more than 15 min off counts as a lapse. Reboots and a flat battery don't.", T.Faint, top = 6)
+                text("Usage is billed whenever the phone reports, even after time offline. Accessibility off for more than 15 min, or no contact with Hey Ann for 48 h, counts as a lapse. Reboots and a flat battery don't.", T.Faint, top = 6)
             }
             text("Blocks only the apps you wall in Hey Ann. Calls, messages, the camera and everything else are never touched.", T.Faint, top = 16, center = true)
         })
@@ -242,7 +242,7 @@ class MainActivity : Activity() {
         pausedCard.show(Store.paused)
         pauseBtn.show(!Store.paused)
         if (Store.paused) pausedLine.text =
-            "Since ${ago(Store.pausedAt)}. Walled apps open freely. In the active phase, a pause over ${Policy.GAP_MIN} min counts as a lapse."
+            "Since ${ago(Store.pausedAt)}. Walled apps open freely; every minute in them is billed to your wallet. Resumes by itself after ${Policy.PAUSE_MAX_MIN} min."
 
         // Checklist
         pairMark.setDone(paired)
@@ -298,9 +298,46 @@ class MainActivity : Activity() {
         Usage.reportIfDue(this, force = true) { if (it.isNotBlank()) usageSub.text = it }
     }
 
+    override fun onStart() {
+        super.onStart()
+        ReportJob.schedule(this)
+    }
+
     private fun togglePause() {
-        if (Store.paused) Store.resume(this) else Store.pause()
-        render()
+        if (Store.paused) {
+            Store.resume(this)
+            Usage.reportIfDue(this, force = true) // bill the paused minutes now
+            render()
+            return
+        }
+        // A beat of friction, never a lock: with people or in an emergency the app must open.
+        val balance = Store.snapshot?.balance
+        val d = android.app.AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Pause protection?")
+            .setMessage(
+                "Walled apps open freely for up to ${Policy.PAUSE_MAX_MIN} min, then protection resumes.\n\n" +
+                    "It isn't free: every minute in them is billed to your wallet from the usage report" +
+                    (if (balance != null) " (balance now $balance min)" else "") + ", and can take you into debt.",
+            )
+            .setPositiveButton("Pause") { _, _ -> Store.pause(); render() }
+            .setNegativeButton("Keep it on", null)
+            .create()
+        d.setOnShowListener {
+            val b = d.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            b.isEnabled = false
+            var left = 5
+            val h = Handler(Looper.getMainLooper())
+            val step = object : Runnable {
+                override fun run() {
+                    if (!d.isShowing) return
+                    if (left == 0) { b.text = "Pause"; b.isEnabled = true; return }
+                    b.text = "Pause (${left--})"
+                    h.postDelayed(this, 1000)
+                }
+            }
+            step.run()
+        }
+        d.show()
     }
 
     private fun save() {

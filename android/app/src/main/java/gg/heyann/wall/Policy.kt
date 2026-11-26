@@ -26,6 +26,8 @@ data class Session(val id: Long, val app: String, val kind: String, val endsAt: 
 object Policy {
     /** Gaps shorter than this are never reported (the server's tamper_gap_min default). */
     const val GAP_MIN = 15
+    /** A pause ends by itself after this long. Paused use is billed from usage reports anyway (the server's tab). */
+    const val PAUSE_MAX_MIN = 60
 
     /**
      * Packages that are never blocked, whatever the server says. Launchers, keyboards and the
@@ -130,7 +132,24 @@ object Policy {
         return if (minutes > GAP_MIN) minutes else null
     }
 
-    /** Pause protection: report once, as soon as a pause runs past GAP_MIN. */
+    /** Settings and package-installer windows whose title mentions this app: its Accessibility switch, App info,
+     *  uninstall. Window titles only (event text), never screen content. */
+    private val GUARD_PKGS = setOf(
+        "com.android.settings", "com.samsung.accessibility", "com.samsung.android.app.settings",
+        "com.android.packageinstaller", "com.google.android.packageinstaller", "com.samsung.android.packageinstaller",
+    )
+
+    fun isGuardedPage(pkg: String, text: String, appLabel: String): Boolean =
+        pkg in GUARD_PKGS && appLabel.isNotBlank() && text.contains(appLabel, ignoreCase = true)
+
+    fun shouldGuard(pkg: String, text: String, appLabel: String, state: Snapshot?, paused: Boolean, nowWall: Long, quietUntil: Long): Boolean =
+        state?.enforce == true && state.phase == "active" && !paused && nowWall >= quietUntil && isGuardedPage(pkg, text, appLabel)
+
+    /** True once a pause has run PAUSE_MAX_MIN (or the clock went backwards past its start). */
+    fun pauseExpired(nowWall: Long, pausedAtWall: Long): Boolean =
+        pausedAtWall > 0 && (nowWall < pausedAtWall || nowWall - pausedAtWall >= PAUSE_MAX_MIN * 60_000L)
+
+    /** Pause protection: report once, as soon as a pause runs past GAP_MIN. (Unused since pauses are metered.) */
     fun pauseGapMinutes(nowWall: Long, pausedAtWall: Long, alreadyReported: Boolean, enforce: Boolean): Int? {
         if (!enforce || alreadyReported || pausedAtWall <= 0 || pausedAtWall > nowWall) return null
         val minutes = ((nowWall - pausedAtWall) / 60_000).toInt()

@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
+    <!-- Normal permission: keeps the hourly usage report scheduled across reboots. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Package visibility (Android 11+): app names and launch intents for walled apps, and the
          launchers, keyboards, dialer and camera that are never blocked. No QUERY_ALL_PACKAGES. -->
@@ -61,6 +63,18 @@
             android:noHistory="false"
             android:taskAffinity="gg.heyann.wall.block"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".GuardActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity="gg.heyann.wall.guard" />
+
+        <service
+            android:name=".ReportJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <service
             android:name=".WallService"

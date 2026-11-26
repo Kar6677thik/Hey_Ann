@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Board } from '../src/core/board.ts';
 import { addCards, updateCards } from '../src/core/ops.ts';
 import { getWallet } from '../src/core/wallet.ts';
-import { addDays, startOfDay, zonedTime, parseDay } from '../src/core/time.ts';
+import { addDays, startOfDay, zonedTime, parseDay, localDay } from '../src/core/time.ts';
 import { createServers } from '../src/server/http.ts';
 import { loadConfig } from '../src/server/config.ts';
 
@@ -217,6 +217,51 @@ test('Ann walls and unwalls apps at once, past the Monday wait, and a pending ch
   assert.match(row.reason, /^Walled com\.example\.game; unwalled com\.netflix\.mediaclient/);
   assert.equal(w.setWalled({ wall: ['com.example.game'] }, 'again', 'ann').added.length, 0);
   assert.throws(() => w.setWalled({ wall: ['Instagram'] }, 'bad name', 'ann'), /package name/);
+});
+
+test('the tab: unpaid minutes in walled apps are charged from usage reports, from the next day on', () => {
+  const { b, w } = setup();
+  const now = Date.now();
+  const today = localDay(now, TZ);
+  const ig = 'com.instagram.android';
+  w.recordUsage(today, { [ig]: 50 }, now);
+  assert.equal(kinds(w).filter((k) => k.startsWith('tab')).length, 0, 'nothing retroactive: starts tomorrow');
+
+  const day = addDays(today, 1);
+  const noon = startOfDay(day, TZ) + 12 * 3600_000;
+  const balance0 = w.balance();
+  // A paid 20-minute session covers 20 of the 50; 3 are forgiven; 27 are billed.
+  b.db.prepare("INSERT INTO phone_sessions(device_id, app, kind, started_at, ends_at, stopped_at) VALUES (1, ?, 'spend', ?, ?, NULL)").run(ig, noon, noon + 20 * 60000);
+  w.recordUsage(day, { [ig]: 50, 'com.android.settings': 400 }, noon + 3600_000);
+  assert.equal(w.balance(), balance0 - 27);
+  // Re-reports of the same day only charge the difference.
+  w.recordUsage(day, { [ig]: 50 }, noon + 2 * 3600_000);
+  assert.equal(w.balance(), balance0 - 27);
+  w.recordUsage(day, { [ig]: 60 }, noon + 3 * 3600_000);
+  assert.equal(w.balance(), balance0 - 37);
+  assert.match(w.ledger({ limit: 1 })[0].reason, /37 min in walled apps without a session/);
+  // Never below the tab floor, whatever the usage.
+  w.recordUsage(day, { [ig]: 2000 }, noon + 4 * 3600_000);
+  assert.equal(w.balance(), w.rules().tab_floor);
+  assert.equal(w.summary(noon + 4 * 3600_000).today.tab, balance0 - w.rules().tab_floor);
+});
+
+test('a paired phone that stays silent for 48 h lapses once a day', () => {
+  const { b, w } = setup();
+  const now = Date.now();
+  b.db.prepare("INSERT INTO devices(name, token_hash, created_at, last_seen) VALUES ('Galaxy', 'h', ?, ?)").run(now - 5 * 864e5, now - 50 * 3600_000);
+  const before = w.balance();
+  w.tick(now);
+  w.tick(now + 60_000);
+  assert.equal(w.balance(), before - 30);
+  assert.match(w.ledger({ limit: 1 })[0].reason, /Galaxy hasn't sent a usage report for 50 h/);
+  // Reaching Hey Ann isn't enough (Usage access revoked): only a usage report counts.
+  b.db.prepare('UPDATE devices SET last_seen = ?, last_usage = ?').run(now + 864e5, now - 49 * 3600_000);
+  w.tick(now + 864e5);
+  assert.equal(kinds(w).filter((k) => k === 'penalty:-30').length, 2);
+  b.db.prepare('UPDATE devices SET last_usage = ?').run(now + 2 * 864e5);
+  w.tick(now + 2 * 864e5);
+  assert.equal(kinds(w).filter((k) => k === 'penalty:-30').length, 2);
 });
 
 test('snoozing an overdue P1 costs minutes', () => {

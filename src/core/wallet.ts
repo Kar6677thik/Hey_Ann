@@ -42,6 +42,13 @@ export interface Rules {
   emergency_per_week: number;
   tamper_penalty: number;
   tamper_gap_min: number;
+  /** Unpaid minutes in walled apps forgiven per day (bounces, accidental opens). */
+  tab_grace_min: number;
+  /** Unpaid use is charged down to this balance at most. */
+  tab_floor: number;
+  /** A paired phone silent this long gets silent_penalty once a day until it reports again. */
+  silent_hours: number;
+  silent_penalty: number;
   penalty_day_cap: number;
   penalty_week_cap: number;
   balance_cap: number;
@@ -87,6 +94,10 @@ export const DEFAULT_RULES: Rules = {
   emergency_per_week: 2,
   tamper_penalty: 30,
   tamper_gap_min: 15,
+  tab_grace_min: 3,
+  tab_floor: -300,
+  silent_hours: 48,
+  silent_penalty: 30,
   penalty_day_cap: 30,
   penalty_week_cap: 100,
   balance_cap: 180,
@@ -115,7 +126,7 @@ const BOUNDS: Partial<Record<keyof Rules, [number, number]>> = {
   rate: [0.05, 1], on_time_mult: [1, 2], bonus: [0, 20], bonus_min_focus: [5, 120], bonus_per_day: [0, 10], session_cap_min: [25, 240],
   daily_earn_cap: [10, 240], study_day_cap: [0, 120], allowance: [0, 60], missed_plan_penalty: [0, 60], missed_plan_focus_min: [0, 240], overdue_per_day: [0, 30],
   overdue_card_cap: [0, 120], snooze_penalty: [0, 30], emergency_cost: [5, 120], emergency_minutes: [5, 60], emergency_per_week: [0, 7],
-  tamper_penalty: [0, 120], tamper_gap_min: [5, 240], penalty_day_cap: [0, 120], penalty_week_cap: [0, 500], balance_cap: [30, 600],
+  tamper_penalty: [0, 120], tamper_gap_min: [5, 240], tab_grace_min: [0, 30], tab_floor: [-600, 0], silent_hours: [12, 168], silent_penalty: [0, 120], penalty_day_cap: [0, 120], penalty_week_cap: [0, 500], balance_cap: [30, 600],
   expiry_days: [1, 30], debt_floor: [-300, 0], repay_mult: [1, 3], debt_pause_days: [1, 14], back_reward: [0, 5], back_per_day: [0, 20],
   unlock_max: [5, 60], pause_allowance: [0, 120], pause_per_month: [0, 14], ann_grant_day: [0, 60], ann_fine_day: [0, 60],
   veto_threshold: [0, 60], veto_hours: [1, 72], baseline_days: [0, 14], on_time_notice_h: [0, 168],
@@ -130,6 +141,8 @@ interface State {
   started: string | null;
   baseline_until: string | null;
   last_closed: string | null;
+  /** First day the tab (unpaid use) is charged: the day after the feature first ran. */
+  tab_from?: string;
 }
 
 export interface LedgerRow {
@@ -408,6 +421,48 @@ export class Wallet {
     return ms;
   }
 
+  /**
+   * The tab: every minute in a walled app that no paid session covered is charged, from the phone's own usage
+   * reports. Pausing protection, switching off Tailscale or the accessibility service doesn't make use free; it only
+   * delays the bill until the phone reports again (it sends its last 7 days). Spending, not a penalty: no penalty caps,
+   * but never below tab_floor. Charged as the difference against what this day already paid, so re-reports are safe.
+   * Starts the day after it first runs (nothing retroactive), and only on active days.
+   */
+  billTab(day: string, now = Date.now()): number {
+    const s = this.state();
+    if (this.phase(now) !== 'active') return 0;
+    const today = localDay(now, this.tz);
+    if (!s.tab_from) { this.save({ ...s, tab_from: addDays(today, 1) }); return 0; }
+    if (day < s.tab_from || day > today || (s.baseline_until && day < s.baseline_until)) return 0;
+    const r = this.rules(now);
+    if (!r.walled_apps.length) return 0;
+    const used = this.db.prepare(`SELECT app, minutes FROM phone_usage WHERE day = ? AND app IN (${r.walled_apps.map(() => '?').join(',')}) AND minutes > 0 ORDER BY minutes DESC`)
+      .all(day, ...r.walled_apps) as { app: string; minutes: number }[];
+    const total = used.reduce((n, u) => n + u.minutes, 0);
+    const from = startOfDay(day, this.tz), to = endOfDay(day, this.tz);
+    const paidMs = (this.db.prepare(`SELECT COALESCE(SUM(MAX(0, MIN(COALESCE(MIN(stopped_at, ends_at), ends_at), ?) - MAX(started_at, ?))), 0) AS ms
+      FROM phone_sessions WHERE started_at < ? AND COALESCE(stopped_at, ends_at) > ?`).get(to, from, to, from) as { ms: number }).ms;
+    const unpaid = Math.max(0, total - Math.ceil(paidMs / 60000) - r.tab_grace_min);
+    const charged = -this.sum("kind = 'tab' AND dedupe LIKE ?", `tab:${day}:%`);
+    const due = Math.min(unpaid - charged, this.balance() - r.tab_floor);
+    if (due <= 0) return 0;
+    const apps = used.slice(0, 3).map((u) => u.app).join(', ');
+    const row = this.insert(-due, 'tab', `${unpaid} min in walled apps without a session on ${day} (${apps})`, { source: 'phone', dedupe: `tab:${day}:${charged + due}`, now });
+    return row ? -due : 0;
+  }
+
+  /** A paired phone with no usage report for silent_hours (offline, Usage access revoked, uninstalled): one lapse a day until it reports. */
+  private checkSilence(now: number) {
+    const r = this.rules(now);
+    const today = localDay(now, this.tz);
+    const devices = this.db.prepare('SELECT id, name, COALESCE(last_usage, last_seen) AS at FROM devices WHERE revoked_at IS NULL AND COALESCE(last_usage, last_seen) IS NOT NULL').all() as { id: number; name: string; at: number }[];
+    for (const d of devices) {
+      const h = (now - d.at) / 3600_000;
+      if (h >= r.silent_hours)
+        this.penalize(r.silent_penalty, 'penalty', `${d.name} hasn't sent a usage report for ${Math.floor(h)} h`, { dedupe: `silent:${d.id}:${today}`, now });
+    }
+  }
+
   /** Days in a row (ending yesterday) that closed in debt. */
   private debtStreak(now: number): number {
     const rows = this.db.prepare('SELECT day, closing FROM wallet_days WHERE day < ? ORDER BY day DESC LIMIT 14').all(localDay(now, this.tz)) as { day: string; closing: number }[];
@@ -556,6 +611,8 @@ export class Wallet {
     this.save({ ...this.state(), last_closed: s.last_closed });
 
     if (this.phase(now) !== 'active') return;
+    this.checkSilence(now);
+    if (!this.state().tab_from) this.billTab(today, now);
     const paused = this.isPaused(today);
     if (paused) this.credit(r.pause_allowance, 'pause', 'Pause day allowance', { dedupe: `allow:${today}`, now });
     else this.credit(r.allowance, 'allowance', 'Daily allowance (yours to lose)', { dedupe: `allow:${today}`, now });
@@ -734,9 +791,10 @@ export class Wallet {
     return this.penalize(r.tamper_penalty, 'penalty', `Phone protection was off for ${Math.round(minutes)} min`, { dedupe: `gap:${deviceId}:${Math.floor(now / 600000)}`, now });
   }
 
-  recordUsage(day: string, apps: Record<string, number>) {
+  recordUsage(day: string, apps: Record<string, number>, now = Date.now()) {
     const up = this.db.prepare('INSERT INTO phone_usage(day, app, minutes) VALUES (?, ?, ?) ON CONFLICT(day, app) DO UPDATE SET minutes = excluded.minutes');
     for (const [app, m] of Object.entries(apps).slice(0, 200)) if (Number.isFinite(m) && m >= 0) up.run(day, app.slice(0, 120), Math.round(m));
+    this.billTab(day, now);
   }
 
   /** What the phone needs to enforce the wall. */
@@ -773,7 +831,7 @@ export class Wallet {
       phase: this.phase(now), started: s.started, baseline_until: s.baseline_until, balance: this.balance(),
       today: {
         day: today, earned: kinds(EARNINGS), allowance: kinds(['allowance', 'pause']), penalties: kinds(PENALTY_KINDS),
-        spent: -kinds(['spend', 'emergency']), refunded: kinds(['refund']), ann: this.sum("kind IN ('grant','fine') AND source = 'ann' AND at >= ?", start),
+        spent: -kinds(['spend', 'emergency', 'tab']), tab: -kinds(['tab']), refunded: kinds(['refund']), ann: this.sum("kind IN ('grant','fine') AND source = 'ann' AND at >= ?", start),
         earn_cap: r.daily_earn_cap, paused: this.isPaused(today),
       },
       debt: Math.min(this.balance(), 0), debt_floor: r.debt_floor, balance_cap: r.balance_cap,

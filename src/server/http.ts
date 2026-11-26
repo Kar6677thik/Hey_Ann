@@ -420,6 +420,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   phone.post('/usage', async (c) => {
     const b = await body(c);
     if (!isDay(b.day) || typeof b.apps !== 'object' || !b.apps) throw new BoardError('usage needs { day: "YYYY-MM-DD", apps: { package: minutes } }');
+    board.db.prepare('UPDATE devices SET last_usage = ? WHERE id = ?').run(Date.now(), c.get('device'));
     wallet.recordUsage(b.day, b.apps);
     return c.json({ ok: true });
   });

@@ -12,7 +12,7 @@ import java.time.ZoneId
 
 /** Daily per-app minutes from Usage access (PACKAGE_USAGE_STATS), posted to /api/phone/usage. */
 object Usage {
-    private const val EVERY_MS = 3 * 3600_000L
+    private const val EVERY_MS = 3600_000L
 
     @Suppress("DEPRECATION") // unsafeCheckOpNoThrow is the API 29+ call; its replacement needs API 36
     fun granted(ctx: Context): Boolean {
