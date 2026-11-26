@@ -96,7 +96,7 @@ class MainActivity : Activity() {
                     mono(" left", 16f, C.faint).setPadding(0, 0, 0, dp(6))
                 }
                 row(top = 12) {
-                    text("Walled apps are open. Unused minutes come back.", T.Small).layoutParams = lp(w = 0, weight = 1f)
+                    text("Walled apps are open. It ends a minute after you leave them; unused minutes come back.", T.Small).layoutParams = lp(w = 0, weight = 1f)
                     button("End now", Btn.Secondary, w = LinearLayout.LayoutParams.WRAP_CONTENT) { endSession() }
                         .layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) }
                 }

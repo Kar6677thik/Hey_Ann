@@ -44,8 +44,10 @@ class WallService : AccessibilityService() {
             runCatching {
                 val st = Store.snapshot
                 if (st?.enforce == true && !Store.paused && getSystemService(PowerManager::class.java).isInteractive) {
-                    Usage.foregroundNow(this@WallService)?.let { if (it != packageName) { current = it; maybeBounce(it) } }
+                    Usage.foregroundNow(this@WallService)?.let { if (it != packageName) { current = it; seen(it); maybeBounce(it) } }
                 }
+                trackSession()
+                autoStop()
             }
             main.postDelayed(this, 1_500)
         }
@@ -57,7 +59,7 @@ class WallService : AccessibilityService() {
         ReportJob.schedule(this)
         checkGap()
         Store.markAlive(this)
-        Store.onState = { scheduleSessionEnd() }
+        Store.onState = { onSessionState(); scheduleSessionEnd() }
         scheduleSessionEnd()
         refresh()
         main.removeCallbacks(tick)
@@ -83,12 +85,58 @@ class WallService : AccessibilityService() {
         runCatching {
             val now = SystemClock.elapsedRealtime()
             if (now - aliveAt > 30_000 && !Store.paused) { aliveAt = now; Store.markAlive(this) }
+            seen(pkg)
             maybeGuard(pkg, (e.text.joinToString(" ") + " " + (e.contentDescription ?: "")))
             maybeBounce(pkg)
         }
     }
 
     private var lastGuard = 0L
+
+    // ---- pay as you go: a session ends by itself a minute after you leave every walled app
+    private var lastInWalled = 0L          // elapsed time a walled app was last seen in front
+    private var sessionSeen: Long? = null   // the session these timestamps belong to
+    private var stopping: Long? = null
+    private var tracked: String? = null     // app in front per usage events, replayed incrementally
+    private var trackedAt = 0L               // wall clock of the last replay
+
+    /** While a session runs, follow the app in front; a walled app there (screen on) keeps the session alive. */
+    private fun trackSession() {
+        if (Store.snapshot?.session == null) { trackedAt = 0L; return }
+        val now = System.currentTimeMillis()
+        tracked = Usage.trackForeground(this, if (trackedAt == 0L) now - 10 * 60_000 else trackedAt - 2_000, if (trackedAt == 0L) null else tracked)
+        trackedAt = now
+        tracked?.let { seen(it) }
+    }
+
+    private fun seen(pkg: String) {
+        if (Store.snapshot?.walledApps?.contains(pkg) == true && getSystemService(PowerManager::class.java).isInteractive)
+            lastInWalled = SystemClock.elapsedRealtime()
+    }
+
+    /** A new session starts the clock (the app is still opening); no session clears it. */
+    private fun onSessionState() {
+        val id = Store.snapshot?.session?.id
+        if (id != sessionSeen) { sessionSeen = id; lastInWalled = if (id != null) SystemClock.elapsedRealtime() else 0L; stopping = null }
+    }
+
+    private fun autoStop() {
+        val s = Store.snapshot ?: return
+        val id = s.session?.id ?: return
+        if (id != sessionSeen) onSessionState()
+        val now = SystemClock.elapsedRealtime()
+        val left = Policy.sessionRemainingMs(s, now, Store.bootCount(this))
+        if (stopping == id || !Policy.shouldAutoStop(s, left, now, lastInWalled)) return
+        stopping = id
+        Api.stopSession(this, id) { r ->
+            r.onSuccess {
+                val back = it.optInt("refunded")
+                runCatching { android.widget.Toast.makeText(this, "Hey Ann: session ended" + (if (back > 0) ", $back min back" else ""), android.widget.Toast.LENGTH_SHORT).show() }
+            }
+            r.onFailure { stopping = null } // offline: try again on the next check
+        }
+    }
+
 
     /** Friction, not a lock: a 30 s screen over this app's own Settings pages while the wall is up. */
     private fun maybeGuard(pkg: String, text: String) {
@@ -137,6 +185,7 @@ class WallService : AccessibilityService() {
     private fun onTick() {
         runCatching {
             if (!Store.paused) Store.markAlive(this)
+            autoStop()
             if (Store.paused && Policy.pauseExpired(System.currentTimeMillis(), Store.pausedAt)) {
                 Store.resume(this)
                 Usage.reportIfDue(this, force = true) // bill the paused minutes soon
