@@ -29,7 +29,7 @@ class BlockActivity : Activity() {
     private lateinit var balance: TextView
     private lateinit var balanceNote: TextView
     private lateinit var goBackBtn: TextView
-    private lateinit var chips: LinearLayout
+    private lateinit var payNote: TextView
     private lateinit var status: TextView
     private lateinit var openBtn: TextView
     private lateinit var emergencyLink: TextView
@@ -71,12 +71,10 @@ class BlockActivity : Activity() {
                     .apply { minHeight = dp(52) }
                 text("Backing out earns a minute.", T.Faint, top = 8, center = true)
 
-                // Spend
-                text("Or spend from your balance", T.Small, top = 28, center = true)
-                chips = row(top = 8) {}
-                status = notice("", Tone.Positive, top = 12)
-                openBtn = button("Open $appName", Btn.Secondary, top = 8) { openApp() }
-                text("Paid now. End early in Hey Ann and unused minutes come back.", T.Faint, top = 10, center = true)
+                // Spend: pay as you go
+                status = notice("", Tone.Positive, top = 20)
+                openBtn = button("Open $appName", Btn.Secondary, top = 8) { open() }
+                payNote = text("", T.Faint, top = 10, center = true)
                 space()
                 emergencyLink = button("Emergency unlock", Btn.Quiet, top = 16) { showEmergency(true) }
                     .apply { setTextColor(C.faint) }
@@ -150,14 +148,16 @@ class BlockActivity : Activity() {
             }
             else -> status.show(false)
         }
-        openBtn.show(left > 0)
-
-        chips.removeAllViews()
-        val max = s?.unlockMax ?: 20
-        listOf(5, 10, 15, 20).filter { it <= max }.forEachIndexed { i, m ->
-            val ok = !busy && left <= 0 && (s?.enforce != true || s.balance >= m)
-            chips.addView(chip(m, ok), LinearLayout.LayoutParams(0, dp(64), 1f).apply { if (i > 0) marginStart = dp(8) })
+        val hold = Policy.holdMinutes(s)
+        openBtn.text = when {
+            busy -> "Opening…"
+            left > 0 -> "Open $appName"
+            hold < 1 -> "No minutes to spend"
+            else -> "Open $appName · pay as you go"
         }
+        openBtn.enable(!busy && (left > 0 || hold >= 1))
+        payNote.text = if (left > 0) "Your session covers all walled apps. It ends a minute after you leave them."
+            else "Billed by the minute, up to $hold min. Switch between walled apps freely; it ends a minute after you leave them, and unused minutes come back."
 
         val em = s
         emergencyLink.enable(!busy && left <= 0 && (em?.emergencyLeft ?: 0) > 0)
@@ -168,27 +168,16 @@ class BlockActivity : Activity() {
         renderEmergency()
     }
 
-    /** A spend chip: the number in mono, "min" underneath. */
-    private fun chip(minutes: Int, ok: Boolean) = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER
-        mono("$minutes", 20f, bold = true)
-        mono("min", 11.5f, C.faint, top = 2)
-        background = android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x22FFFFFF),
-            rounded(C.surface, dp(12), C.borderStrong, dp(1)), rounded(-1, dp(12)),
-        )
-        isClickable = true
-        setOnClickListener { spend(minutes) }
-        contentDescription = "Spend $minutes minutes"
-        enable(ok)
-    }
-
-    private fun spend(minutes: Int) {
+    /** Open the app: inside a running session right away, otherwise start a pay-as-you-go session first. */
+    private fun open() {
+        val s = Store.snapshot
+        if (Policy.sessionRemainingMs(s, SystemClock.elapsedRealtime(), Store.bootCount(this)) > 0) return openApp()
+        val hold = Policy.holdMinutes(s)
+        if (hold < 1) return
         busy = true; render()
-        Api.startSession(this, app, minutes) { r ->
+        Api.startSession(this, app, hold) { r ->
             busy = false
-            render(r.exceptionOrNull())
+            if (r.isSuccess) openApp() else render(r.exceptionOrNull())
         }
     }
 

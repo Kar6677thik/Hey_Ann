@@ -94,6 +94,7 @@ cap: 60 SM per day, counted on the day the focus happened (not the day the card 
   - **"Spend"** opens a session of 5/10/15 minutes, at most 20 per unlock.
   - **"Emergency (−30)"** gives a 15-minute unlock, after a 60-second wait and a typed reason. Max 2 per week.
 - **Meter:** sessions are prepaid on the server (unused whole minutes are refunded when you end early), and the phone enforces the end time with its uptime clock, so changing the phone clock does not help. A running session unlocks all walled apps until it ends. The server owns the balance.
+- **Pay as you go (26 Nov 2026):** the block screen has one "Open" button instead of duration chips. It holds as much as the balance allows (up to the per-session limit), opens the app, and the session ends by itself a minute after you leave every walled app (screen off counts). Switching between walled apps keeps it running. Unused whole minutes come back automatically.
 - **Offline:** sessions are **prepaid** on the server, so with no connection nothing new can be bought and walled apps stay walled. A session already running ends on time. Turning off Tailscale or Wi-Fi therefore doesn't unlock anything. Essentials are never affected.
 - **Grayscale** stays on outside essentials. It's free friction.
 - **Safety first (owner's rule):** only a normal Accessibility permission, which you can switch off in Settings at any time. The app never touches the launcher, Settings, system UI, essentials or itself, and if it crashes, nothing is blocked. No device-admin, no Device Owner, no reset.

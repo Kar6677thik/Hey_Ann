@@ -145,6 +145,20 @@ object Policy {
     fun shouldGuard(pkg: String, text: String, appLabel: String, state: Snapshot?, paused: Boolean, nowWall: Long, quietUntil: Long): Boolean =
         state?.enforce == true && state.phase == "active" && !paused && nowWall >= quietUntil && isGuardedPage(pkg, text, appLabel)
 
+    /** A pay-as-you-go session ends by itself after this long outside every walled app (screen off counts as outside). */
+    const val AWAY_STOP_MS = 60_000L
+
+    /** Minutes to hold for a pay-as-you-go session: as much as the balance allows, up to the per-session limit. */
+    fun holdMinutes(s: Snapshot?): Int {
+        if (s == null) return 0
+        if (!s.enforce) return s.unlockMax
+        return minOf(s.balance, s.unlockMax).coerceAtLeast(0)
+    }
+
+    /** End a running spend session once the user has been out of all walled apps for AWAY_STOP_MS. */
+    fun shouldAutoStop(s: Snapshot?, remainingMs: Long, nowElapsed: Long, lastInWalledElapsed: Long): Boolean =
+        s?.session?.kind == "spend" && remainingMs > 0 && lastInWalledElapsed > 0 && nowElapsed - lastInWalledElapsed >= AWAY_STOP_MS
+
     /** True once a pause has run PAUSE_MAX_MIN (or the clock went backwards past its start). */
     fun pauseExpired(nowWall: Long, pausedAtWall: Long): Boolean =
         pausedAtWall > 0 && (nowWall < pausedAtWall || nowWall - pausedAtWall >= PAUSE_MAX_MIN * 60_000L)

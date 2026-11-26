@@ -24,6 +24,9 @@ class PolicyTest {
         serverTime = serverTime, fetchedElapsed = fetchedElapsed, fetchedBoot = boot,
     )
 
+    private fun snap(balance: Int, unlockMax: Int, session: Session? = null) =
+        state(session = session).copy(balance = balance, unlockMax = unlockMax)
+
     private fun block(
         pkg: String?, s: Snapshot?, essentials: Set<String> = emptySet(), paused: Boolean = false,
         nowElapsed: Long = 5_000_000L, boot: Int = 7,
@@ -112,6 +115,17 @@ class PolicyTest {
         assertNull(Policy.gapMinutes(now, now - 60 * min, 7, 7, bootWall, enforce = false))
         assertNull(Policy.gapMinutes(now, 0, -1, 7, bootWall, true))
         assertNull(Policy.gapMinutes(now, now + 60 * min, 7, 7, bootWall, true)) // clock went backwards
+    }
+
+    @Test fun payAsYouGoHoldsWhatTheBalanceAllowsAndStopsAfterAMinuteAway() {
+        val s = snap(balance = 12, unlockMax = 20, session = Session(1, "x", "spend", 0))
+        assertEquals(12, Policy.holdMinutes(s))
+        assertEquals(20, Policy.holdMinutes(snap(balance = 50, unlockMax = 20)))
+        assertEquals(0, Policy.holdMinutes(snap(balance = -5, unlockMax = 20)))
+        assertFalse(Policy.shouldAutoStop(s, 5 * min, 100_000, 50_000))
+        assertTrue(Policy.shouldAutoStop(s, 5 * min, 120_000, 50_000))
+        assertFalse(Policy.shouldAutoStop(s, 0, 120_000, 50_000)) // already over
+        assertFalse(Policy.shouldAutoStop(snap(balance = 0, unlockMax = 20, session = Session(1, "x", "emergency", 0)), 5 * min, 120_000, 50_000))
     }
 
     @Test fun guardOnlyOnThisAppsSettingsPagesWhileTheWallIsUp() {
