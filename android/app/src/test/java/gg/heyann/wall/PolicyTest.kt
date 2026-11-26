@@ -114,6 +114,22 @@ class PolicyTest {
         assertNull(Policy.gapMinutes(now, now + 60 * min, 7, 7, bootWall, true)) // clock went backwards
     }
 
+    @Test fun guardOnlyOnThisAppsSettingsPagesWhileTheWallIsUp() {
+        val label = "Hey Ann wall"
+        assertTrue(Policy.isGuardedPage("com.android.settings", "Hey Ann wall", label))
+        assertTrue(Policy.isGuardedPage("com.google.android.packageinstaller", "Do you want to uninstall Hey Ann wall?", label))
+        assertFalse(Policy.isGuardedPage("com.android.settings", "Accessibility", label))
+        assertFalse(Policy.isGuardedPage("com.instagram.android", "Hey Ann wall", label))
+        assertFalse(Policy.isGuardedPage("com.android.settings", "Hey Ann wall", ""))
+    }
+
+    @Test fun pauseEndsByItselfAfterAnHour() {
+        assertFalse(Policy.pauseExpired(now, 0))
+        assertFalse(Policy.pauseExpired(now, now - 59 * min))
+        assertTrue(Policy.pauseExpired(now, now - 60 * min))
+        assertTrue(Policy.pauseExpired(now, now + 5 * min)) // clock went backwards
+    }
+
     @Test fun pauseIsReportedOnceAfterFifteenMinutes() {
         assertNull(Policy.pauseGapMinutes(now, now - 10 * min, false, true))
         assertEquals(16, Policy.pauseGapMinutes(now, now - 16 * min, false, true))

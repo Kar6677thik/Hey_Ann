@@ -72,6 +72,8 @@ cap: 60 SM per day
 | Pushing back an already-overdue P0/P1 | −5 once (snoozing isn't free) |
 | **Emergency unlock** (§6) | −30, which can go into debt |
 | **Tampering:** phone stops checking in without being offline, or accessibility/admin disabled | −30, and the wall stays shut |
+| **Unpaid use** (paused, offline or wall off): minutes in walled apps no session covered (§6a) | Charged by the minute from the usage report, down to −300 at most |
+| **Silent phone:** no usage report for 48 h | −30 a day until it reports |
 | **Overspend** (the phone ran past the balance, e.g. offline) | Becomes debt |
 
 **Guard rails against giving up:**
@@ -100,6 +102,35 @@ cap: 60 SM per day
 - `POST /api/phone/back`, `POST /api/phone/gap`, `POST /api/phone/usage` (daily per-app minutes, for the baseline).
 - `POST /api/phone/session` (start/stop).
 - `POST /api/phone/emergency`.
+
+### 6a. Pausing isn't free (added 26 Nov 2026)
+
+**The loophole:** Pause protection, or switching off Tailscale, then using walled apps freely cost only a flat −30, however long it lasted.
+
+**The fix:** use is billed by the minute from the phone's own usage report. There's still no lock: the phone always opens what you need with people or in an emergency.
+
+- **The tab:**
+  - Every minute in a walled app that no paid session covered is charged to the wallet (ledger kind `tab`, "Unpaid use").
+  - The figure comes from Android's usage stats, which keep counting while paused, offline or with the wall switched off.
+  - 3 minutes a day are forgiven (bounces, accidental opens).
+  - It's spending, not a penalty: the penalty caps don't apply, but it never goes below **−300**. Debt is repaid by real work at 1.5×, and while you're in debt nothing can be bought.
+  - It applies to active days only, starting the day after this shipped.
+- **Pause:**
+  - It still opens everything, but asks first: a 5-second confirm that states the cost.
+  - It ends by itself after **60 min**.
+  - The flat pause penalty is gone; the tab replaces it.
+- **Reporting doesn't depend on the wall:**
+  - An hourly background job sends the usage report whenever there's a network, even with the accessibility service off.
+  - Going offline only delays the bill: the report covers the last 7 days.
+- **Silence:**
+  - A paired phone with no usage report for **48 h** (Tailscale off for days, Usage access revoked, uninstalled) costs −30 a day until it reports again.
+  - Reaching Hey Ann without a usage report doesn't count.
+  - Revoking the device in the web app stops this.
+- **Turning the wall off:**
+  - Opening Hey Ann wall's own pages in Settings (its Accessibility switch, App info, uninstall) shows a 30-second "won't make anything free" screen first.
+  - It's friction, never a lock: Home works, "Continue" opens the page after the wait, and it stays quiet for 10 minutes afterwards.
+  - It reads window titles only, never screen content.
+- **Not covered:** apps inside Secure Folder (a separate Android user). Hey Ann can't see or bill those without OS-level access, which is ruled out.
 
 ## 7. Ann's discretion: the unusual cases
 

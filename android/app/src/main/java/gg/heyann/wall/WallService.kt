@@ -54,6 +54,7 @@ class WallService : AccessibilityService() {
     override fun onServiceConnected() {
         Store.init(this)
         running = true
+        ReportJob.schedule(this)
         checkGap()
         Store.markAlive(this)
         Store.onState = { scheduleSessionEnd() }
@@ -82,8 +83,21 @@ class WallService : AccessibilityService() {
         runCatching {
             val now = SystemClock.elapsedRealtime()
             if (now - aliveAt > 30_000 && !Store.paused) { aliveAt = now; Store.markAlive(this) }
+            maybeGuard(pkg, (e.text.joinToString(" ") + " " + (e.contentDescription ?: "")))
             maybeBounce(pkg)
         }
+    }
+
+    private var lastGuard = 0L
+
+    /** Friction, not a lock: a 30 s screen over this app's own Settings pages while the wall is up. */
+    private fun maybeGuard(pkg: String, text: String) {
+        val label = getString(R.string.app_name)
+        if (!Policy.shouldGuard(pkg, text, label, Store.snapshot, Store.paused || Store.demo, System.currentTimeMillis(), Store.guardQuietUntil)) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastGuard < 3_000) return
+        lastGuard = now
+        startActivity(Intent(this, GuardActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
 
     private fun maybeBounce(pkg: String) {
@@ -123,7 +137,10 @@ class WallService : AccessibilityService() {
     private fun onTick() {
         runCatching {
             if (!Store.paused) Store.markAlive(this)
-            reportPauseGap()
+            if (Store.paused && Policy.pauseExpired(System.currentTimeMillis(), Store.pausedAt)) {
+                Store.resume(this)
+                Usage.reportIfDue(this, force = true) // bill the paused minutes soon
+            }
             if (getSystemService(PowerManager::class.java).isInteractive) {
                 refresh()
                 Usage.reportIfDue(this)
@@ -164,14 +181,6 @@ class WallService : AccessibilityService() {
             enforce = Store.snapshot?.enforce == true && !Store.paused, // a pause is reported on its own
         )
         if (gap != null) Store.pendingGap = gap
-    }
-
-    private fun reportPauseGap() {
-        val m = Policy.pauseGapMinutes(System.currentTimeMillis(), Store.pausedAt, Store.pauseGapReported, Store.snapshot?.enforce == true)
-            ?: return
-        Store.pauseGapReported = true
-        Store.pendingGap = maxOf(Store.pendingGap, m)
-        sendPendingGap()
     }
 
     private fun sendPendingGap() {

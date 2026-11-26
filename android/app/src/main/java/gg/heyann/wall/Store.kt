@@ -143,6 +143,11 @@ object Store {
         get() = prefs.getInt("pending_gap", 0)
         set(v) = prefs.edit().putInt("pending_gap", v).apply()
 
+    /** After "Continue" on the guard screen, Settings pages of this app open without it until then (wall clock). */
+    var guardQuietUntil: Long
+        get() = prefs.getLong("guard_quiet_until", 0)
+        set(v) = prefs.edit().putLong("guard_quiet_until", v).apply()
+
     var lastUsageReport: Long
         get() = prefs.getLong("usage_at", 0)
         set(v) = prefs.edit().putLong("usage_at", v).apply()

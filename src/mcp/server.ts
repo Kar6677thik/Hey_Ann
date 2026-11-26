@@ -436,7 +436,7 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
       const t = s.today;
       const lines = [
         wallet.line(),
-        `Today: +${t.earned} earned (cap ${t.earn_cap}), +${t.allowance} allowance, ${t.penalties} penalties, ${t.spent} spent${t.refunded ? `, +${t.refunded} refunded` : ''}${t.ann ? `, ${t.ann > 0 ? '+' : ''}${t.ann} by Ann` : ''}.`,
+        `Today: +${t.earned} earned (cap ${t.earn_cap}), +${t.allowance} allowance, ${t.penalties} penalties, ${t.spent} spent${t.tab ? ` (${t.tab} of it unpaid use, billed from usage reports)` : ''}${t.refunded ? `, +${t.refunded} refunded` : ''}${t.ann ? `, ${t.ann > 0 ? '+' : ''}${t.ann} by Ann` : ''}.`,
         s.balance < 0 ? `In debt (floor ${s.debt_floor}). Earnings repay debt at ${s.rules.repay_mult}x.` : '',
         s.pending_credit.length ? `Waiting for the user to confirm in the web app: ${s.pending_credit.map((p) => `#${p.card.id} ${p.card.title} (~${p.expected.base + p.expected.bonus} min)`).join(', ')}.` : '',
         `Phone: ${s.phone.enforce ? 'walled' : 'not enforcing yet'}; ${s.phone.emergency.left} emergency unlock${s.phone.emergency.left === 1 ? '' : 's'} left this week.`,
