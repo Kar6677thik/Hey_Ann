@@ -97,7 +97,7 @@ class WallService : AccessibilityService() {
     private var lastInWalled = 0L          // elapsed time a walled app was last seen in front
     private var sessionSeen: Long? = null   // the session these timestamps belong to
     private var stopping: Long? = null
-    private var tracked: String? = null     // app in front per usage events, replayed incrementally
+    private var tracked: Fg? = null          // activity in front per usage events, replayed incrementally
     private var trackedAt = 0L               // wall clock of the last replay
 
     /** While a session runs, follow the app in front; a walled app there (screen on) keeps the session alive. */
@@ -106,7 +106,10 @@ class WallService : AccessibilityService() {
         val now = System.currentTimeMillis()
         tracked = Usage.trackForeground(this, if (trackedAt == 0L) now - 10 * 60_000 else trackedAt - 2_000, if (trackedAt == 0L) null else tracked)
         trackedAt = now
-        tracked?.let { seen(it) }
+        tracked?.let { seen(it.pkg) }
+        // Belt and braces: any other sign that a walled app is in front also keeps the session alive.
+        current?.let { seen(it) }
+        Usage.foregroundNow(this)?.let { seen(it) }
     }
 
     private fun seen(pkg: String) {

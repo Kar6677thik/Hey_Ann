@@ -21,6 +21,9 @@ data class Snapshot(
     val fetchedBoot: Int,         // boot id (Settings.Global.BOOT_COUNT) when the reply arrived
 )
 
+/** The activity in front: package and class (an app switching between its own screens stays in front). */
+data class Fg(val pkg: String, val cls: String?)
+
 data class Session(val id: Long, val app: String, val kind: String, val endsAt: Long)
 
 object Policy {
@@ -145,8 +148,20 @@ object Policy {
     fun shouldGuard(pkg: String, text: String, appLabel: String, state: Snapshot?, paused: Boolean, nowWall: Long, quietUntil: Long): Boolean =
         state?.enforce == true && state.phase == "active" && !paused && nowWall >= quietUntil && isGuardedPage(pkg, text, appLabel)
 
+    /**
+     * Replay one usage event. A pause only clears the activity that paused: apps often resume their next screen
+     * before pausing the previous one, and a package-level check would think the user left.
+     * Event types: 1 resumed, 2 paused, 16 screen non-interactive, 17 keyguard shown.
+     */
+    fun nextForeground(prev: Fg?, type: Int, pkg: String?, cls: String?): Fg? = when (type) {
+        1 -> if (pkg != null) Fg(pkg, cls) else prev
+        2 -> if (prev != null && prev.pkg == pkg && (prev.cls == null || cls == null || prev.cls == cls)) null else prev
+        16, 17 -> null
+        else -> prev
+    }
+
     /** A pay-as-you-go session ends by itself after this long outside every walled app (screen off counts as outside). */
-    const val AWAY_STOP_MS = 60_000L
+    const val AWAY_STOP_MS = 90_000L
 
     /** Minutes to hold for a pay-as-you-go session: as much as the balance allows, up to the per-session limit. */
     fun holdMinutes(s: Snapshot?): Int {

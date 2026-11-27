@@ -117,13 +117,25 @@ class PolicyTest {
         assertNull(Policy.gapMinutes(now, now + 60 * min, 7, 7, bootWall, true)) // clock went backwards
     }
 
+    @Test fun anAppSwitchingItsOwnScreensStaysInFront() {
+        var fg: Fg? = null
+        fg = Policy.nextForeground(fg, 1, ig, "Main")
+        fg = Policy.nextForeground(fg, 1, ig, "Video")   // next screen resumes first...
+        fg = Policy.nextForeground(fg, 2, ig, "Main")    // ...then the previous one pauses
+        assertEquals(ig, fg?.pkg)
+        fg = Policy.nextForeground(fg, 2, ig, "Video")
+        assertNull(fg)
+        fg = Policy.nextForeground(Fg(ig, "Main"), 16, null, null)
+        assertNull(fg)
+    }
+
     @Test fun payAsYouGoHoldsWhatTheBalanceAllowsAndStopsAfterAMinuteAway() {
         val s = snap(balance = 12, unlockMax = 20, session = Session(1, "x", "spend", 0))
         assertEquals(12, Policy.holdMinutes(s))
         assertEquals(20, Policy.holdMinutes(snap(balance = 50, unlockMax = 20)))
         assertEquals(0, Policy.holdMinutes(snap(balance = -5, unlockMax = 20)))
         assertFalse(Policy.shouldAutoStop(s, 5 * min, 100_000, 50_000))
-        assertTrue(Policy.shouldAutoStop(s, 5 * min, 120_000, 50_000))
+        assertTrue(Policy.shouldAutoStop(s, 5 * min, 150_000, 50_000))
         assertFalse(Policy.shouldAutoStop(s, 0, 120_000, 50_000)) // already over
         assertFalse(Policy.shouldAutoStop(snap(balance = 0, unlockMax = 20, session = Session(1, "x", "emergency", 0)), 5 * min, 120_000, 50_000))
     }
