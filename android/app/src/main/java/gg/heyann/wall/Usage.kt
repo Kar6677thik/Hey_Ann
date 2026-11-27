@@ -56,7 +56,7 @@ object Usage {
      * The app in front, tracked incrementally: replay usage events since [from] on top of [prev]. Unlike
      * foregroundNow it never forgets an app that has simply stayed in front for a long time (a video, a chat).
      */
-    fun trackForeground(ctx: Context, from: Long, prev: String?): String? {
+    fun trackForeground(ctx: Context, from: Long, prev: Fg?): Fg? {
         if (!granted(ctx)) return prev
         val now = System.currentTimeMillis()
         val events = runCatching { ctx.getSystemService(UsageStatsManager::class.java).queryEvents(from, now) }.getOrNull() ?: return prev
@@ -64,11 +64,7 @@ object Usage {
         val e = UsageEvents.Event()
         while (events.hasNextEvent()) {
             events.getNextEvent(e)
-            when (e.eventType) {
-                UsageEvents.Event.ACTIVITY_RESUMED -> fg = e.packageName
-                UsageEvents.Event.ACTIVITY_PAUSED -> if (e.packageName == fg) fg = null
-                UsageEvents.Event.SCREEN_NON_INTERACTIVE, UsageEvents.Event.KEYGUARD_SHOWN -> fg = null
-            }
+            fg = Policy.nextForeground(fg, e.eventType, e.packageName, e.className)
         }
         return fg
     }
