@@ -53,7 +53,7 @@ const SortableCard = memo(function SortableCard({ card, project, today, focusMin
       onClick={() => onOpen(card.id)}
       aria-roledescription="Draggable card"
       aria-label={`#${card.id} ${card.title}. Enter to open, Space to move.`}
-      className="cursor-grab touch-manipulation select-none rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:cursor-grabbing"
+      className="cursor-grab touch-manipulation select-none [-webkit-touch-callout:none] rounded-lg outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent active:cursor-grabbing"
     >
       <motion.div
         initial={{ opacity: 0, y: 6 }}

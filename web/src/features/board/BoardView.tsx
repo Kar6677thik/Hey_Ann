@@ -2,11 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   DndContext,
   DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
   closestCorners,
-  useSensor,
-  useSensors,
   type Announcements,
   type DragEndEvent,
   type DragOverEvent,
@@ -16,6 +12,7 @@ import {
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Plus } from 'lucide-react';
 import { useOpenCard } from '../../app/nav.ts';
+import { useDragSensors } from '../../lib/dnd.ts';
 import { isOverdue } from '../../lib/cards.ts';
 import { optimisticMove, useMoveCard } from '../../lib/mutations.ts';
 import { useBoardIndex, type BoardIndex } from '../../lib/queries.ts';
@@ -107,10 +104,7 @@ function BoardDnd({ index, lanes, grouped, onOpen }: { index: BoardIndex; lanes:
   const items = useMemo(() => draft ?? toItems(lanes), [draft, lanes]);
   const { board, cardById, projectById, cardsByColumn } = index;
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] } }),
-  );
+  const sensors = useDragSensors(5, { coordinateGetter: sortableKeyboardCoordinates, keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] } });
 
   const findContainer = useCallback(
     (id: UniqueIdentifier, from: Items): string | undefined => {

@@ -1,6 +1,7 @@
 // Columns, projects and tags.
 import { useRef, useState } from 'react';
-import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
+import { useDragSensors } from '../../lib/dnd.ts';
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, Plus, Trash2 } from 'lucide-react';
@@ -110,7 +111,7 @@ export function ColumnsSettings() {
   const [kind, setKind] = useState<ColumnKind>('todo');
   const create = useWrite((b: { name: string; kind: ColumnKind }) => api.createColumn(b));
   const reorder = useWrite((ids: number[]) => api.reorderColumns(ids));
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }), useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }));
+  const sensors = useDragSensors(4, { coordinateGetter: sortableKeyboardCoordinates });
   const columns = index ? (order ? order.map((id) => index.colById.get(id)).filter((c): c is Column => !!c) : index.columns) : [];
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {

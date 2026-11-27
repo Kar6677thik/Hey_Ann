@@ -1,6 +1,7 @@
 // Calendar: cards by due day. Drag a card to another day to reschedule; recurring cards show their next dates.
 import { useMemo, useState } from 'react';
-import { DndContext, KeyboardSensor, PointerSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import { DndContext, useDraggable, useDroppable, type DragEndEvent } from '@dnd-kit/core';
+import { useDragSensors } from '../../lib/dnd.ts';
 import { ChevronLeft, ChevronRight, Repeat2 } from 'lucide-react';
 import type { Card, Recurrence } from '../../../../src/core/types.ts';
 import { useOpenCard } from '../../app/nav.ts';
@@ -68,7 +69,7 @@ function Calendar({ index }: { index: BoardIndex }) {
   const [cursor, setCursor] = useState(today);
   const [mode, setMode] = useState<'month' | 'week'>('month');
   const patch = usePatchCard();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(KeyboardSensor));
+  const sensors = useDragSensors(5);
 
   const [y, m] = cursor.split('-').map(Number);
   const days = useMemo(() => {
