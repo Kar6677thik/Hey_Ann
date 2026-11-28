@@ -304,6 +304,92 @@ test('a paired phone that stays silent for 48 h lapses once a day', () => {
   assert.equal(kinds(w).filter((k) => k === 'penalty:-30').length, 2);
 });
 
+test('fair billing: refunds round to the nearest minute, and time away after leaving the app is not billed', () => {
+  const { w } = setup();
+  const a = w.spend(1, 'com.instagram.android', 5) as any;
+  // 1 min 10 s used: 3 min 50 s unused rounds to 4 back (it used to floor to 3).
+  assert.equal(w.stopSession(a.id, a.started_at + 70_000).refunded, 4);
+  const b = w.spend(1, 'com.instagram.android', 5) as any;
+  // Stopped automatically 3.5 min in, after 90 s away: billed for 2 min.
+  assert.equal(w.stopSession(b.id, b.started_at + 210_000, undefined, 90_000).refunded, 3);
+  const c = w.spend(1, 'com.instagram.android', 3) as any;
+  assert.equal(w.stopSession(c.id, c.started_at + 30_000, undefined, 10 * 60_000).refunded, 3, 'away time never goes before the start');
+});
+
+test('timed unwalls wall themselves again when they run out', () => {
+  const { w } = setup();
+  const now = Date.now();
+  w.setWalled({ unwall: ['com.instagram.android'] }, 'needed for a work post', 'ann', now, now + 2 * 3600_000);
+  assert.ok(!w.phoneState(now).walled_apps.includes('com.instagram.android'));
+  w.tick(now + 3600_000);
+  assert.ok(!w.rules().walled_apps.includes('com.instagram.android'), 'still unwalled after 1 h');
+  w.tick(now + 2 * 3600_000 + 1000);
+  assert.ok(w.rules().walled_apps.includes('com.instagram.android'), 'walled again after 2 h');
+  assert.match(w.ledger({ limit: 1 })[0].reason, /time-limited unwall ran out/);
+  // A permanent unwall stays.
+  w.setWalled({ unwall: ['com.netflix.mediaclient'] }, 'owner wants it gone', 'ann', now, null);
+  w.tick(now + 5 * 864e5);
+  assert.ok(!w.rules().walled_apps.includes('com.netflix.mediaclient'));
+});
+
+test('sick days lower the wall (3 a month), bill nothing, and can upgrade a pause day', () => {
+  const { b, w } = setup();
+  const now = Date.now();
+  const today = localDay(now, TZ);
+  w.pauseDay(today, 'Down with a fever', 'web', now);
+  assert.equal(w.phoneState(now).enforce, true, 'a plain pause day keeps the wall');
+  const up = w.pauseDay(today, 'Fever got worse', 'web', now, true);
+  assert.equal(up.wall_lifted, true);
+  assert.equal(w.phoneState(now).enforce, false);
+  // Nothing is billed for walled-app use that day.
+  w.billTab(today, now); // starts the tab tomorrow in a fresh wallet; force the start back to test the skip
+  b.setMeta('wallet', { ...b.meta<any>('wallet', null), tab_from: today });
+  const before = w.balance();
+  w.recordUsage(today, { 'com.instagram.android': 120 }, now);
+  assert.equal(w.balance(), before);
+  assert.throws(() => w.pauseDay(today, 'again', 'web', now, true), /already a pause day/);
+  // Two more lifted days this month use up the three; a fourth is refused.
+  const ym = today.slice(0, 7);
+  const others = ['01', '02', '03'].map((d) => `${ym}-${d}`).filter((d) => d !== today).slice(0, 2);
+  for (const d of others) b.db.prepare("INSERT INTO pause_days(day, reason, source, created_at, lift_wall) VALUES (?, 'x', 'web', 0, 1)").run(d);
+  const next = addDays(today, 1).startsWith(ym) ? addDays(today, 1) : addDays(today, -1);
+  assert.throws(() => w.pauseDay(next, 'sick again', 'web', now, true), /wall-free sick days/);
+});
+
+test('focus logged by hand earns, within its limits', () => {
+  const { b, w } = setup();
+  const [c] = addCards(b, [{ title: 'Submit the paper', estimate_min: 90 } as any], web).created;
+  assert.throws(() => w.checkManualFocus(c.id, 100), /limited to 90 min/);
+  w.checkManualFocus(c.id, 90);
+  b.batch(web, (tx) => tx.logFocus(c.id, 90, 'wrote and submitted it offline'));
+  const before = w.balance();
+  updateCards(b, [{ card: c.id, move_to: 'done' }], web);
+  // 90 x 0.25 = 23 (rounded), plus the bonus.
+  assert.equal(w.balance() - before, 23 + 3);
+  // Per day: 120 in all.
+  const [d] = addCards(b, [{ title: 'Another', estimate_min: 180 } as any], web).created;
+  assert.throws(() => w.checkManualFocus(d.id, 60), /120 min a day/);
+  w.checkManualFocus(d.id, 30);
+  assert.throws(() => b.batch(web, (tx) => tx.logFocus(d.id, 30, 'no')), /reason/);
+  assert.throws(() => w.checkManualFocus(c.id, -100), /only 90 min/);
+});
+
+test('one-time refund for the pay-as-you-go bug, only where it happened', () => {
+  const { b, w } = setup();
+  const day = Date.UTC(2026, 10, 26, 10);
+  for (let i = 0; i < 6; i++) b.db.prepare("INSERT INTO ledger(at, amount, kind, reason, source, rule_version) VALUES (?, -20, 'spend', 'x', 'phone', 1)").run(day + i);
+  b.setMeta('wallet', { ...b.meta<any>('wallet', null), paygo_refund_v1: false });
+  const before = w.balance();
+  w.tick();
+  assert.equal(w.balance() - before, 15);
+  w.tick();
+  assert.equal(w.balance() - before, 15, 'once');
+  const fresh = setup().w;
+  const f0 = fresh.balance();
+  fresh.tick();
+  assert.equal(fresh.balance(), f0, 'no refund without the affected sessions');
+});
+
 test('snoozing an overdue P1 costs minutes', () => {
   const { b, w } = setup();
   addCards(b, [{ title: 'Late urgent', priority: 'P1' as any, due: '2020-01-01' }], web);

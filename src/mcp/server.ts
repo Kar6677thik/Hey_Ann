@@ -7,7 +7,7 @@ import type { Batch, Card, Settings } from '../core/types.ts';
 import { PRIORITY_LABELS } from '../core/types.ts';
 import { addCards, archiveCards, updateCards, resolveAll, type AddItem, type UnresolvedRef, type UpdateItem } from '../core/ops.ts';
 import { boardContext, cardLine, fmtMin, insights, planDay, rank, summary, triage } from '../core/insights.ts';
-import { addDays, dayLabel, dueLabel, localDay, timeLabel } from '../core/time.ts';
+import { addDays, dayLabel, dueLabel, endOfDay, localDay, timeLabel } from '../core/time.ts';
 import { getWallet } from '../core/wallet.ts';
 import { resolveCard } from '../core/resolve.ts';
 import { setPlan } from '../core/plan.ts';
@@ -269,14 +269,15 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
     });
 
   register('focus', 'write', 'Focus timer',
-    'Use this when the user starts or stops working on a card ("starting the migration now", "taking a break", "spent 2h on X"). start: moves it to In Progress and starts a timer (stopping any other); stop: logs the time; log: add minutes manually.',
+    'Use this when the user starts or stops working on a card ("starting the migration now", "taking a break", "spent 2h on X"). start: moves it to In Progress and starts a timer (stopping any other); stop: logs the time; log: work done without a timer ("I spent 2h on the paper offline"), with a reason saying what the work was. Logged time earns screen minutes like timed focus, within limits: per card up to its estimate (2h if none), 2h a day in all. Negative minutes correct an earlier log. Only log work the user says they actually did; never pad it.',
     {
       card: z.union([z.string(), z.number()]).optional().describe('#id or title (for stop: defaults to the running one)'),
       action: z.enum(['start', 'stop', 'log']),
-      minutes: z.number().int().min(-1440).max(1440).optional().describe('For log'),
+      minutes: z.number().int().min(-480).max(480).optional().describe('For log'),
+      reason: z.string().min(5).max(200).optional().describe('For log: what the work was, in the user\'s words'),
       utterance: UTTERANCE,
     }, {},
-    ({ card, action, minutes, utterance }) => {
+    ({ card, action, minutes, reason, utterance }) => {
       let target: Card | undefined;
       if (card !== undefined) {
         const r = resolveCard(board, card);
@@ -285,9 +286,11 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
       } else if (action === 'stop') target = board.openCards().find((c) => c.focus_started_at);
       if (!target) return action === 'stop' ? 'No focus session is running.' : 'Which card? Pass card.';
       if (action === 'log' && !minutes) return 'Pass minutes to log.';
+      if (action === 'log' && !reason) return 'Pass a reason: what the work was.';
+      if (action === 'log') wallet.checkManualFocus(target.id, minutes!);
       let notes: string[] = [];
       const { result, batch } = board.batch(meta(`focus:${action}`, utterance), (tx) => {
-        const c = action === 'log' ? tx.logTime(target!.id, minutes!) : tx.focus(target!.id, action);
+        const c = action === 'log' ? tx.logFocus(target!.id, minutes!, reason!) : tx.focus(target!.id, action);
         tx.summary = action === 'start' ? `Started focus on "${c.title}"` : action === 'stop' ? `Stopped focus on "${c.title}"` : `Logged ${minutes} min on "${c.title}"`;
         notes = tx.notes;
         return c;
@@ -465,14 +468,19 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
     {
       wall: z.array(z.string()).max(20).optional().describe('Package names to wall'),
       unwall: z.array(z.string()).max(20).optional().describe('Package names to unwall'),
+      unwall_for: z.string().optional().describe('How long an unwall lasts: "today" (default: until midnight), a number of hours like "2h", or "permanent" (only when the user clearly wants it gone for good)'),
       reason: z.string().min(5).max(200).optional().describe('Why; shown to the user in the ledger (required when changing anything)'),
       utterance: UTTERANCE,
     }, { idempotent: true },
-    ({ wall, unwall, reason }) => {
+    ({ wall, unwall, unwall_for, reason }) => {
       const label = (ps: string[]) => ps.join(', ') || 'none';
       if (!wall?.length && !unwall?.length) return `Walled apps: ${label(wallet.rules().walled_apps)}.`;
       if (!reason) throw new BoardError('give a reason; it is shown to the user');
-      const r = wallet.setWalled({ wall, unwall }, reason, 'ann');
+      const now = Date.now();
+      const f = (unwall_for ?? 'today').trim().toLowerCase();
+      const hours = /^(\d{1,2})\s*h/.exec(f);
+      const until = f === 'permanent' ? null : hours ? now + Math.min(Number(hours[1]), 72) * 3600_000 : endOfDay(board.today(), board.tz) + 1;
+      const r = wallet.setWalled({ wall, unwall }, reason, 'ann', now, unwall?.length ? until : null);
       if (!r.added.length && !r.removed.length) return `Nothing changed. Walled apps: ${label(r.walled)}.`;
       return [
         r.added.length ? `Walled now: ${label(r.added)}.` : '',
@@ -482,16 +490,17 @@ export function buildMcpServer(board: Board, opts: McpOptions = {}) {
     });
 
   register('pause_day', 'write', 'Declare a pause day',
-    'Use this when the user is sick, travelling, or has a genuine emergency that makes a normal day impossible. A pause day has no penalties and a flat allowance instead. Limited per month; can be declared for today, a future day, or at most yesterday. Do not grant it for ordinary busyness or procrastination.',
+    'Use this when the user is sick, travelling, or has a genuine emergency that makes a normal day impossible. A pause day has no penalties and a flat allowance instead. Limited per month; can be declared for today, a future day, or at most yesterday. Do not grant it for ordinary busyness or procrastination. lift_wall=true also lowers the phone wall for that day (walled apps free, nothing billed): only for real illness or an emergency where the phone is needed, at most 3 a month. An existing pause day can be upgraded with lift_wall.',
     {
       day: z.string().optional().describe('"today" (default), "tomorrow", "yesterday" or a date'),
       reason: z.string().min(5).max(200),
+      lift_wall: z.boolean().optional().describe('Sick day: also lower the wall for the day'),
       utterance: UTTERANCE,
     }, {},
-    ({ day, reason }) => {
+    ({ day, reason, lift_wall }) => {
       const d = !day || /^today$/i.test(day) ? board.today() : /^yesterday$/i.test(day) ? addDays(board.today(), -1) : dayOf(board, day);
-      const r = wallet.pauseDay(d, reason, 'ann');
-      return `Pause day set for ${dayLabel(r.day, board.today())}: no penalties, flat allowance. ${r.left} pause day${r.left === 1 ? '' : 's'} left this month.`;
+      const r = wallet.pauseDay(d, reason, 'ann', Date.now(), !!lift_wall);
+      return `Pause day set for ${dayLabel(r.day, board.today())}: no penalties, flat allowance${r.wall_lifted ? ', and the wall is down for the day (walled apps open freely)' : ''}. ${r.left} pause day${r.left === 1 ? '' : 's'} left this month${r.wall_lifted ? `, ${r.sick_left} wall-free sick day${r.sick_left === 1 ? '' : 's'}` : ''}.`;
     });
 
   // ------------------------------------------------------------------ configuration & help

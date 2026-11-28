@@ -105,7 +105,7 @@ export const walletApi = {
   setRules: (patch: Partial<Rules>) => apiRequest<{ effective: string; rules: Rules }>('PATCH', '/wallet/rules', patch),
   confirm: (cardId: number, accept: boolean) => apiRequest<{ balance: number }>('POST', `/wallet/confirm/${cardId}`, { accept }),
   veto: (id: number) => apiRequest<{ entry: LedgerRow; balance: number }>('POST', `/wallet/veto/${id}`),
-  pause: (reason: string, day?: string) => apiRequest<unknown>('POST', '/wallet/pause', { reason, day }),
+  pause: (reason: string, day?: string, liftWall?: boolean) => apiRequest<unknown>('POST', '/wallet/pause', { reason, day, lift_wall: liftWall === true }),
   fine: (minutes: number, reason: string) => apiRequest<{ entry: LedgerRow | null; balance: number }>('POST', '/wallet/fine', { minutes, reason }),
   usage: (days = 14) => apiRequest<{ items: { day: string; app: string; minutes: number }[] }>('GET', `/wallet/usage?days=${days}`),
   devices: () => apiRequest<{ items: Device[] }>('GET', '/devices'),

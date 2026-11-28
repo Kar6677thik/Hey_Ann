@@ -273,10 +273,14 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   });
   api.post('/cards/:id/log', async (c) => {
     const id = num(c.req.param('id'));
-    const minutes = (await body(c)).minutes;
+    const b = await body(c);
+    const minutes = b.minutes;
+    const reason = typeof b.reason === 'string' ? b.reason.trim() : '';
+    // With a reason, it counts as focus (earns, within limits); without, it only adjusts the time spent.
+    if (reason) wallet.checkManualFocus(id, minutes);
     const { result, batch } = board.batch(web('log'), (tx) => {
-      const card = tx.logTime(id, minutes);
-      tx.summary = `Logged ${minutes} min on "${card.title}"`;
+      const card = reason ? tx.logFocus(id, minutes, reason) : tx.logTime(id, minutes);
+      tx.summary = reason ? `Logged ${minutes} min of focus on "${card.title}" (${reason.slice(0, 60)})` : `Logged ${minutes} min on "${card.title}"`;
       return card;
     });
     return c.json({ card: result, batch });
@@ -374,7 +378,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   api.post('/wallet/veto/:id', (c) => c.json({ entry: wallet.veto(num(c.req.param('id'))), balance: wallet.balance() }));
   api.post('/wallet/pause', async (c) => {
     const b = await body(c);
-    return c.json(wallet.pauseDay(b.day && isDay(b.day) ? b.day : board.today(), String(b.reason ?? ''), 'web'));
+    return c.json(wallet.pauseDay(b.day && isDay(b.day) ? b.day : board.today(), String(b.reason ?? ''), 'web', Date.now(), b.lift_wall === true));
   });
   // The owner can fine themselves (confessions), never grant: self-granting would be a one-click way around the wall.
   api.post('/wallet/fine', async (c) => {
@@ -411,7 +415,7 @@ function uiServer(board: Board, cfg: Config, deps: Deps): Hono {
   phone.get('/state', (c) => { wallet.tick(); return c.json(wallet.phoneState()); });
   phone.post('/session', async (c) => {
     const b = await body(c);
-    if (b.action === 'stop') return c.json({ ...wallet.stopSession(num(String(b.id)), Date.now(), c.get('device')), state: wallet.phoneState() });
+    if (b.action === 'stop') return c.json({ ...wallet.stopSession(num(String(b.id)), Date.now(), c.get('device'), Number(b.away_ms) || 0), state: wallet.phoneState() });
     return c.json({ session: wallet.spend(c.get('device'), String(b.app ?? 'unknown'), num(String(b.minutes), 'minutes')), state: wallet.phoneState() });
   });
   phone.post('/back', (c) => c.json({ rewarded: wallet.back(), state: wallet.phoneState() }));

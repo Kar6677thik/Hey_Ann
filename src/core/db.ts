@@ -232,6 +232,10 @@ const MIGRATIONS: string[] = [
      NULL (older rows): the local day of \`at\`. */ `
   ALTER TABLE ledger ADD COLUMN earn_day TEXT;
   `,
+  /* 7: fair play (28 Nov 2026): sick days that lower the wall, and focus logged after the fact (with its reason) */ `
+  ALTER TABLE pause_days ADD COLUMN lift_wall INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE focus_log ADD COLUMN manual TEXT;   -- NULL: a timed session; else the reason it was logged by hand
+  `,
 ];
 
 export function openDb(path = DEFAULT_DB_PATH): DB {
