@@ -135,6 +135,27 @@ cap: 60 SM per day, counted on the day the focus happened (not the day the card 
   - It reads window titles only, never screen content.
 - **Not covered:** apps inside Secure Folder (a separate Android user). Hey Ann can't see or bill those without OS-level access, which is ruled out.
 
+### 6b. Fair play (28 Nov 2026)
+
+These came out of the owner's ledger review: places where the rules charged more than was fair, or broke a promise.
+
+- **Sessions bill what you used:**
+  - Refunds round to the nearest minute; they used to round down.
+  - When a session ends by itself, the minute or two after you left (up to 2 min) isn't billed.
+  - A one-time +15 refunded the pay-as-you-go bug of 26–27 Nov, when sessions kept ending after 1–2 minutes.
+- **Work without a timer can be logged by hand:**
+  - It needs a reason, and it earns like timed focus.
+  - Limits: per card up to its estimate (2 h if none), and 2 h a day in all.
+  - Negative minutes correct a mistake.
+  - Ann does it through `focus` (log); the web does it through `POST /cards/:id/log` with a `reason`. Without a reason it only adjusts time spent, as before.
+- **Unwalls expire:**
+  - Ann's unwalls last until midnight by default, or a number of hours, then wall themselves again.
+  - "permanent" is only for when you clearly want an app gone for good.
+- **Sick days can lower the wall:**
+  - A pause day with "lower the wall" makes walled apps free for the day, with nothing billed.
+  - It's limited to **3 a month**.
+  - An existing pause day can be upgraded.
+
 ## 7. Ann's discretion: the unusual cases
 
 Fixed rules can't foresee everything ("I spent the day at the hospital", "I used a loophole", "my laptop died mid-focus"). Ann gets a few wallet tools:

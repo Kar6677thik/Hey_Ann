@@ -44,6 +44,11 @@ export interface Rules {
   tamper_gap_min: number;
   /** Unpaid minutes in walled apps forgiven per day (bounces, accidental opens). */
   tab_grace_min: number;
+  /** Pause days that also lower the wall (sick days), per month. */
+  sick_wall_per_month: number;
+  /** Focus logged by hand (work done without a timer): at most this much a day, and per card at most its estimate (or manual_card_default). */
+  manual_day_cap: number;
+  manual_card_default: number;
   /** Unpaid use is charged down to this balance at most. */
   tab_floor: number;
   /** A paired phone silent this long gets silent_penalty once a day until it reports again. */
@@ -95,6 +100,9 @@ export const DEFAULT_RULES: Rules = {
   tamper_penalty: 30,
   tamper_gap_min: 15,
   tab_grace_min: 3,
+  sick_wall_per_month: 3,
+  manual_day_cap: 120,
+  manual_card_default: 120,
   tab_floor: -300,
   silent_hours: 48,
   silent_penalty: 30,
@@ -126,7 +134,7 @@ const BOUNDS: Partial<Record<keyof Rules, [number, number]>> = {
   rate: [0.05, 1], on_time_mult: [1, 2], bonus: [0, 20], bonus_min_focus: [5, 120], bonus_per_day: [0, 10], session_cap_min: [25, 240],
   daily_earn_cap: [10, 240], study_day_cap: [0, 120], allowance: [0, 60], missed_plan_penalty: [0, 60], missed_plan_focus_min: [0, 240], overdue_per_day: [0, 30],
   overdue_card_cap: [0, 120], snooze_penalty: [0, 30], emergency_cost: [5, 120], emergency_minutes: [5, 60], emergency_per_week: [0, 7],
-  tamper_penalty: [0, 120], tamper_gap_min: [5, 240], tab_grace_min: [0, 30], tab_floor: [-600, 0], silent_hours: [12, 168], silent_penalty: [0, 120], penalty_day_cap: [0, 120], penalty_week_cap: [0, 500], balance_cap: [30, 600],
+  tamper_penalty: [0, 120], tamper_gap_min: [5, 240], tab_grace_min: [0, 30], sick_wall_per_month: [0, 7], manual_day_cap: [0, 480], manual_card_default: [0, 480], tab_floor: [-600, 0], silent_hours: [12, 168], silent_penalty: [0, 120], penalty_day_cap: [0, 120], penalty_week_cap: [0, 500], balance_cap: [30, 600],
   expiry_days: [1, 30], debt_floor: [-300, 0], repay_mult: [1, 3], debt_pause_days: [1, 14], back_reward: [0, 5], back_per_day: [0, 20],
   unlock_max: [5, 60], pause_allowance: [0, 120], pause_per_month: [0, 14], ann_grant_day: [0, 60], ann_fine_day: [0, 60],
   veto_threshold: [0, 60], veto_hours: [1, 72], baseline_days: [0, 14], on_time_notice_h: [0, 168],
@@ -145,6 +153,10 @@ interface State {
   tab_from?: string;
   /** One-time backpay done (earnings moved to the day of focus, session cap 90 -> 150; 26 Nov 2026). */
   backpay_v1?: boolean;
+  /** Unwalled apps that wall themselves again at this time (ms). */
+  unwall_until?: Record<string, number>;
+  /** One-time refund for the pay-as-you-go auto-stop bug (26-27 Nov 2026) done. */
+  paygo_refund_v1?: boolean;
 }
 
 export interface LedgerRow {
@@ -277,7 +289,7 @@ export class Wallet {
    * Any pending rule change keeps the same app list so it doesn't undo this when it lands.
    * Logged as a zero-minute ledger row so the owner sees who changed what and why.
    */
-  setWalled(change: { wall?: string[]; unwall?: string[] }, reason: string, by: Source = 'ann', now = Date.now()): { walled: string[]; added: string[]; removed: string[] } {
+  setWalled(change: { wall?: string[]; unwall?: string[] }, reason: string, by: Source = 'ann', now = Date.now(), until: number | null = null): { walled: string[]; added: string[]; removed: string[] } {
     const pkg = /^[a-zA-Z][\w]*(\.[\w]+)+$/;
     const wall = [...new Set(change.wall ?? [])], unwall = [...new Set(change.unwall ?? [])];
     const bad = [...wall, ...unwall].find((p) => !pkg.test(p));
@@ -286,13 +298,18 @@ export class Wallet {
     const cur = this.rules(now).walled_apps;
     const added = wall.filter((p) => !cur.includes(p));
     const removed = unwall.filter((p) => cur.includes(p));
-    if (!added.length && !removed.length) return { walled: cur, added, removed };
-    const walled = [...cur.filter((p) => !removed.includes(p)), ...added];
     const s = this.state();
+    const expiry = { ...(s.unwall_until ?? {}) };
+    for (const p of wall) delete expiry[p];
+    for (const p of unwall) { if (until && until > now) expiry[p] = until; else delete expiry[p]; }
+    if (!added.length && !removed.length) { this.save({ ...s, unwall_until: expiry }); return { walled: cur, added, removed }; }
+    const walled = [...cur.filter((p) => !removed.includes(p)), ...added];
     s.rules = { ...DEFAULT_RULES, ...s.rules, walled_apps: walled };
     if (s.pending) s.pending.rules = { ...s.pending.rules, walled_apps: walled };
+    s.unwall_until = expiry;
     this.save(s);
-    const what = [added.length ? `walled ${added.join(', ')}` : '', removed.length ? `unwalled ${removed.join(', ')}` : ''].filter(Boolean).join('; ');
+    const untilText = removed.length && until ? ` until ${new Intl.DateTimeFormat('en-GB', { timeZone: this.tz, weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(until)}` : '';
+    const what = [added.length ? `walled ${added.join(', ')}` : '', removed.length ? `unwalled ${removed.join(', ')}${untilText}` : ''].filter(Boolean).join('; ');
     this.insert(0, 'wall', `${what[0].toUpperCase()}${what.slice(1)}: ${reason.trim().slice(0, 200)}`, { source: by, now });
     return { walled, added, removed };
   }
@@ -345,6 +362,47 @@ export class Wallet {
     a = Math.min(Math.round(a), Math.max(r.balance_cap - this.balance(), 0));
     if (a <= 0) return 0;
     return this.insert(a, kind, reason, opts) ? a : 0;
+  }
+
+  /** A pause day that also lowers the wall (sick day). */
+  wallLifted(day: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM pause_days WHERE day = ? AND lift_wall = 1').get(day);
+  }
+
+  /** Unwalls with a time limit wall themselves again once it passes. */
+  private expireUnwalls(now: number) {
+    const until = this.state().unwall_until ?? {};
+    const due = Object.entries(until).filter(([, t]) => t <= now).map(([p]) => p);
+    if (due.length) this.setWalled({ wall: due }, 'the time-limited unwall ran out', 'system', now);
+  }
+
+  /**
+   * One-time (owner-approved, 28 Nov 2026): pay-as-you-go sessions kept ending by themselves after 1-2 minutes
+   * (26-27 Nov), and each restart paid whole-minute rounding plus the time spent outside the app. +15 back.
+   */
+  private paygoRefund(now: number) {
+    const s = this.state();
+    s.paygo_refund_v1 = true;
+    this.save(s);
+    const affected = (this.db.prepare("SELECT COUNT(*) AS n FROM ledger WHERE kind = 'spend' AND at >= ? AND at < ?").get(Date.UTC(2026, 10, 25), Date.UTC(2026, 10, 28, 6)) as { n: number }).n;
+    if (affected >= 5) this.credit(15, 'refund', 'Pay-as-you-go bug (26-27 Nov): sessions kept ending after a minute or two', { source: 'system', dedupe: 'paygo-bug-2026-11', now });
+  }
+
+  /**
+   * How much focus may be logged by hand for a card right now: work done without a timer, with a reason. At most
+   * manual_day_cap a day across cards, and per card at most its estimate (or manual_card_default). Negative minutes
+   * correct an earlier manual log (never below 0).
+   */
+  checkManualFocus(cardId: number, minutes: number, now = Date.now()): void {
+    const r = this.rules(now);
+    const card = this.board.mustCard(cardId);
+    const mine = (this.db.prepare('SELECT COALESCE(SUM(minutes), 0) AS m FROM focus_log WHERE card_id = ? AND manual IS NOT NULL').get(cardId) as { m: number }).m;
+    if (minutes < 0) { if (mine + minutes < 0) throw new BoardError(`only ${mine} min were logged by hand on this card`); return; }
+    const cardCap = Math.min(card.estimate_min ?? r.manual_card_default, 480);
+    if (mine + minutes > cardCap) throw new BoardError(`hand-logged time on "${card.title}" is limited to ${cardCap} min (${card.estimate_min ? 'its estimate' : 'no estimate set'}); ${Math.max(cardCap - mine, 0)} min left`);
+    const { start } = this.dayBounds(now);
+    const today = (this.db.prepare('SELECT COALESCE(SUM(minutes), 0) AS m FROM focus_log WHERE manual IS NOT NULL AND minutes > 0 AND started_at >= ?').get(start) as { m: number }).m;
+    if (today + minutes > r.manual_day_cap) throw new BoardError(`at most ${r.manual_day_cap} min a day can be logged by hand; ${Math.max(r.manual_day_cap - today, 0)} min left today`);
   }
 
   /** Card bonuses and Socrates mastery awards share one daily limit (bonus_per_day). */
@@ -435,7 +493,7 @@ export class Wallet {
     if (this.phase(now) !== 'active') return 0;
     const today = localDay(now, this.tz);
     if (!s.tab_from) { this.save({ ...s, tab_from: addDays(today, 1) }); return 0; }
-    if (day < s.tab_from || day > today || (s.baseline_until && day < s.baseline_until)) return 0;
+    if (day < s.tab_from || day > today || (s.baseline_until && day < s.baseline_until) || this.wallLifted(day)) return 0;
     const r = this.rules(now);
     if (!r.walled_apps.length) return 0;
     const used = this.db.prepare(`SELECT app, minutes FROM phone_usage WHERE day = ? AND app IN (${r.walled_apps.map(() => '?').join(',')}) AND minutes > 0 ORDER BY minutes DESC`)
@@ -510,15 +568,16 @@ export class Wallet {
   focusByDay(cardId: number): Map<string, number> {
     const r = this.rules();
     const out = new Map<string, number>();
-    const logs = this.db.prepare('SELECT started_at, ended_at, minutes FROM focus_log WHERE card_id = ? ORDER BY started_at').all(cardId) as { started_at: number; ended_at: number; minutes: number }[];
+    const logs = this.db.prepare('SELECT started_at, ended_at, minutes, manual FROM focus_log WHERE card_id = ? ORDER BY started_at').all(cardId) as { started_at: number; ended_at: number; minutes: number; manual: string | null }[];
     if (!logs.length) return out;
     const lo = Math.min(...logs.map((l) => l.started_at)), hi = Math.max(...logs.map((l) => l.ended_at));
     const phone = this.db.prepare('SELECT started_at, MIN(ends_at, COALESCE(stopped_at, ends_at)) AS e FROM phone_sessions WHERE started_at < ? AND ends_at > ?').all(hi, lo) as { started_at: number; e: number }[];
     for (const l of logs) {
+      const d = localDay(l.started_at, this.tz);
+      if (l.manual !== null) { out.set(d, Math.max(0, (out.get(d) ?? 0) + l.minutes)); continue; }
       let overlap = 0;
       for (const p of phone) overlap += Math.max(0, Math.min(l.ended_at, p.e) - Math.max(l.started_at, p.started_at));
       const m = Math.max(0, Math.min(l.minutes, r.session_cap_min) - Math.round(overlap / 60000));
-      const d = localDay(l.started_at, this.tz);
       out.set(d, (out.get(d) ?? 0) + m);
     }
     return out;
@@ -667,6 +726,8 @@ export class Wallet {
   tick(now = Date.now()) {
     if (this.phase(now) === 'off') return;
     if (!this.state().backpay_v1) this.backpay(now);
+    this.expireUnwalls(now);
+    if (!this.state().paygo_refund_v1) this.paygoRefund(now);
     const s = this.state();
     const r = this.rules(now);
     const today = localDay(now, this.tz);
@@ -770,22 +831,30 @@ export class Wallet {
   }
 
   /** Sick, travel or emergency day: no penalties, a flat allowance instead. Today, tomorrow+, or yesterday at most. */
-  pauseDay(day: string, reason: string, source: Source, now = Date.now()) {
+  pauseDay(day: string, reason: string, source: Source, now = Date.now(), liftWall = false) {
     const r = this.rules(now);
     const today = localDay(now, this.tz);
     if (daysBetween(today, day) < -1) throw new BoardError('pause days can be declared at most one day late');
     if (daysBetween(today, day) > 60) throw new BoardError('too far ahead');
     if (!reason?.trim()) throw new BoardError('give a reason');
-    if (this.isPaused(day)) throw new BoardError(`${day} is already a pause day`, 409);
     const month = day.slice(0, 7);
+    const lifts = (this.db.prepare('SELECT COUNT(*) AS n FROM pause_days WHERE day LIKE ? AND lift_wall = 1').get(`${month}-%`) as { n: number }).n;
+    if (liftWall && lifts >= r.sick_wall_per_month) throw new BoardError(`all ${r.sick_wall_per_month} wall-free sick days for ${month} are used`);
+    if (this.isPaused(day)) {
+      // A pause day can be upgraded to lower the wall (e.g. the fever got worse).
+      if (!liftWall || this.wallLifted(day)) throw new BoardError(`${day} is already a pause day`, 409);
+      this.db.prepare('UPDATE pause_days SET lift_wall = 1 WHERE day = ?').run(day);
+      this.insert(0, 'pause', `Sick day, wall lowered: ${reason.trim().slice(0, 150)}`, { source, now });
+      return { day, used: (this.db.prepare('SELECT COUNT(*) AS n FROM pause_days WHERE day LIKE ?').get(`${month}-%`) as { n: number }).n, left: r.pause_per_month - (this.db.prepare('SELECT COUNT(*) AS n FROM pause_days WHERE day LIKE ?').get(`${month}-%`) as { n: number }).n, wall_lifted: true, sick_left: r.sick_wall_per_month - lifts - 1 };
+    }
     const used = (this.db.prepare('SELECT COUNT(*) AS n FROM pause_days WHERE day LIKE ?').get(`${month}-%`) as { n: number }).n;
     if (used >= r.pause_per_month) throw new BoardError(`all ${r.pause_per_month} pause days for ${month} are used`);
-    this.db.prepare('INSERT INTO pause_days(day, reason, source, created_at) VALUES (?, ?, ?, ?)').run(day, reason.trim().slice(0, 200), source, now);
+    this.db.prepare('INSERT INTO pause_days(day, reason, source, created_at, lift_wall) VALUES (?, ?, ?, ?, ?)').run(day, reason.trim().slice(0, 200), source, now, liftWall ? 1 : 0);
     // Refund penalties already charged for that day, and top the allowance up to the pause allowance.
     const charged = this.db.prepare("SELECT id, amount, reason FROM ledger WHERE amount < 0 AND kind IN ('forfeit','penalty') AND dedupe LIKE ?").all(`%:${day}`) as { id: number; amount: number; reason: string }[];
     for (const c of charged) this.insert(-c.amount, 'refund', `Pause day: ${c.reason}`, { source, dedupe: `pause-refund:${c.id}`, now });
     if (day <= today && this.got(`allow:${day}`)) this.credit(Math.max(r.pause_allowance - r.allowance, 0), 'pause', `Pause day (${reason.trim().slice(0, 60)})`, { dedupe: `pause-top:${day}`, now, source });
-    return { day, used: used + 1, left: r.pause_per_month - used - 1 };
+    return { day, used: used + 1, left: r.pause_per_month - used - 1, wall_lifted: liftWall, sick_left: r.sick_wall_per_month - lifts - (liftWall ? 1 : 0) };
   }
 
   // ------------------------------------------------------------------ phone
@@ -811,12 +880,19 @@ export class Wallet {
   }
 
   /** End a session early: unused whole minutes come back. */
-  stopSession(id: number, now = Date.now(), deviceId?: number) {
+  /**
+   * End a session early and refund what's left, to the nearest minute. awayMs: how long the phone had already been
+   * out of every walled app when it ended the session by itself (not billed; at most 2 minutes).
+   */
+  stopSession(id: number, now = Date.now(), deviceId?: number, awayMs = 0) {
     const s = this.db.prepare('SELECT * FROM phone_sessions WHERE id = ?').get(id) as any;
     if (!s || (deviceId !== undefined && s.device_id !== deviceId)) throw new BoardError('session not found', 404);
     if (s.stopped_at) return { refunded: 0 };
-    this.db.prepare('UPDATE phone_sessions SET stopped_at = ? WHERE id = ?').run(Math.min(now, s.ends_at), id);
-    const unused = Math.floor((s.ends_at - now) / 60000);
+    const away = Number.isFinite(awayMs) ? Math.min(Math.max(awayMs, 0), 120_000) : 0;
+    const end = Math.min(Math.max(now - away, s.started_at), s.ends_at);
+    this.db.prepare('UPDATE phone_sessions SET stopped_at = ? WHERE id = ?').run(end, id);
+    const paid = Math.round((s.ends_at - s.started_at) / 60000);
+    const unused = Math.min(Math.round((s.ends_at - end) / 60000), paid);
     if (s.kind === 'spend' && unused > 0 && this.phase(s.started_at) === 'active') {
       this.insert(unused, 'refund', `Ended early: ${unused} min back`, { source: 'phone', dedupe: `stop:${id}`, now });
       return { refunded: unused };
@@ -871,7 +947,7 @@ export class Wallet {
     const emUsed = (this.db.prepare("SELECT COUNT(*) AS n FROM phone_sessions WHERE kind = 'emergency' AND started_at >= ?").get(startOfDay(startOfWeek(today, 1), this.tz)) as { n: number }).n;
     const s = this.activeSession(now);
     return {
-      phase, enforce: phase === 'active', balance: this.balance(), walled_apps: r.walled_apps, unlock_max: r.unlock_max,
+      phase, enforce: phase === 'active' && !this.wallLifted(today), wall_lifted: this.wallLifted(today), balance: this.balance(), walled_apps: r.walled_apps, unlock_max: r.unlock_max,
       session: s ? { id: s.id, app: s.app, kind: s.kind, ends_at: s.ends_at } : null,
       emergency: { cost: r.emergency_cost, minutes: r.emergency_minutes, left: Math.max(r.emergency_per_week - emUsed, 0) },
       back_reward: r.back_reward, tamper: { gap_min: r.tamper_gap_min, penalty: r.tamper_penalty }, server_time: now,

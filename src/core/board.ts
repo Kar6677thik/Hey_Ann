@@ -848,6 +848,15 @@ export class Tx {
     return this.writeRaw(cur, { focus_started_at: this.now, ...(cur.credit_priority === null ? { credit_priority: cur.priority } : {}) });
   }
 
+  /** Focus done without a timer, logged by hand with a reason (limits: Wallet.checkManualFocus). Earns like timed focus. */
+  logFocus(id: number, minutes: number, reason: string): Card {
+    if (!Number.isInteger(minutes) || minutes === 0 || Math.abs(minutes) > 480) throw new BoardError('minutes must be a whole number between -480 and 480');
+    if (!reason?.trim() || reason.trim().length < 5) throw new BoardError('say what the work was (a reason of 5+ characters)');
+    const card = this.board.mustCard(id);
+    this.db.prepare('INSERT INTO focus_log(card_id, started_at, ended_at, minutes, manual) VALUES (?, ?, ?, ?, ?)').run(id, this.now, this.now, minutes, reason.trim().slice(0, 200));
+    return this.writeRaw(card, { spent_min: Math.max(0, card.spent_min + minutes) });
+  }
+
   logTime(id: number, minutes: number): Card {
     if (!Number.isInteger(minutes) || minutes === 0 || Math.abs(minutes) > 24 * 60) throw new BoardError('minutes must be a whole number between -1440 and 1440');
     const card = this.board.mustCard(id);

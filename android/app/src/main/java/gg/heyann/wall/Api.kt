@@ -25,8 +25,9 @@ object Api {
     fun startSession(ctx: Context, app: String, minutes: Int, done: (Result<JSONObject>) -> Unit) =
         call(ctx, "POST", "/session", JSONObject().put("action", "start").put("app", app).put("minutes", minutes), done)
 
-    fun stopSession(ctx: Context, id: Long, done: (Result<JSONObject>) -> Unit) =
-        call(ctx, "POST", "/session", JSONObject().put("action", "stop").put("id", id), done)
+    /** awayMs: how long the user had already been out of every walled app (an automatic stop); not billed. */
+    fun stopSession(ctx: Context, id: Long, awayMs: Long = 0, done: (Result<JSONObject>) -> Unit) =
+        call(ctx, "POST", "/session", JSONObject().put("action", "stop").put("id", id).put("away_ms", awayMs), done)
 
     fun emergency(ctx: Context, reason: String, done: (Result<JSONObject>) -> Unit) =
         call(ctx, "POST", "/emergency", JSONObject().put("reason", reason), done)

@@ -131,7 +131,7 @@ class WallService : AccessibilityService() {
         val left = Policy.sessionRemainingMs(s, now, Store.bootCount(this))
         if (stopping == id || !Policy.shouldAutoStop(s, left, now, lastInWalled)) return
         stopping = id
-        Api.stopSession(this, id) { r ->
+        Api.stopSession(this, id, now - lastInWalled) { r ->
             r.onSuccess {
                 val back = it.optInt("refunded")
                 runCatching { android.widget.Toast.makeText(this, "Hey Ann: session ended" + (if (back > 0) ", $back min back" else ""), android.widget.Toast.LENGTH_SHORT).show() }

@@ -176,7 +176,7 @@ function WalletRunning({ w }: { w: WalletSummary }) {
           </section>
         </div>
       </div>
-      <PauseDialog open={dialog === 'pause'} onClose={() => setDialog(null)} allowance={w.rules.pause_allowance} />
+      <PauseDialog open={dialog === 'pause'} onClose={() => setDialog(null)} allowance={w.rules.pause_allowance} sickPerMonth={(w.rules as { sick_wall_per_month?: number }).sick_wall_per_month ?? 3} />
       <FineDialog open={dialog === 'fine'} onClose={() => setDialog(null)} />
     </>
   );
@@ -507,16 +507,17 @@ function LedgerLine({ r, now, onOpenCard }: { r: LedgerRow; now: number; onOpenC
 
 // ---------------------------------------------------------------- dialogs
 
-function PauseDialog({ open, onClose, allowance }: { open: boolean; onClose: () => void; allowance: number }) {
+function PauseDialog({ open, onClose, allowance, sickPerMonth }: { open: boolean; onClose: () => void; allowance: number; sickPerMonth: number }) {
   const [reason, setReason] = useState('');
+  const [liftWall, setLiftWall] = useState(false);
   const [when, setWhen] = useState<'today' | 'tomorrow' | 'yesterday'>('today');
   const { index } = useBoardIndex();
-  const pause = useWalletWrite((v: { reason: string; day?: string }) => walletApi.pause(v.reason, v.day), () => 'Pause day set. Rest up.');
+  const pause = useWalletWrite((v: { reason: string; day?: string; liftWall: boolean }) => walletApi.pause(v.reason, v.day, v.liftWall), () => 'Pause day set. Rest up.');
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const today = index?.board.today;
     const day = !today || when === 'today' ? undefined : when === 'tomorrow' ? addDays(today, 1) : addDays(today, -1);
-    pause.mutate({ reason: reason.trim(), day }, { onSuccess: () => (setReason(''), onClose()) });
+    pause.mutate({ reason: reason.trim(), day, liftWall }, { onSuccess: () => (setReason(''), setLiftWall(false), onClose()) });
   };
   return (
     <Modal open={open} onClose={onClose} label="Pause a day" className="max-w-md">
@@ -535,6 +536,8 @@ function PauseDialog({ open, onClose, allowance }: { open: boolean; onClose: () 
           Reason
         </label>
         <Input id="pause-why" data-autofocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Down with a fever…" className="mt-1.5 h-9" />
+        <Checkbox checked={liftWall} onChange={setLiftWall} label={`Sick day: lower the wall too (${sickPerMonth} a month)`} className="mt-4" />
+        <p className="mt-1 text-xs text-faint">Walled apps open freely for the day and nothing is billed. Already paused today? This upgrades it.</p>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
             Cancel
